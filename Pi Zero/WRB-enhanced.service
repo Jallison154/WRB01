@@ -1,0 +1,25 @@
+[Unit]
+Description=WRB Enhanced Audio System
+After=network.target sound.target
+Wants=network.target sound.target
+
+[Service]
+Type=simple
+User=wrb01
+Group=audio
+WorkingDirectory=/home/wrb01/WRB
+Environment=HOME=/home/wrb01
+Environment=USER=wrb01
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=WRB_SERIAL=/dev/ttyACM0
+Environment=SDL_AUDIODRIVER=pulse
+Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+# Standard audio setup
+ExecStart=/usr/bin/python3 /home/wrb01/WRB/PiScript
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

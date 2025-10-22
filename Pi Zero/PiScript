@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""
+WRB Pi Script - Enhanced Audio System for Wireless Button System
+Supports USB hot-swapping, double-tap fade-out, and hold detection
+"""
+import os, glob, time, random, sys, serial, threading
+from gpiozero import LED, PWMLED
+
+# Import configuration
+try:
+    from config import *
+    print("[WRB] Loaded configuration from config.py", flush=True)
+except ImportError:
+    print("[WRB] config.py not found, using defaults", flush=True)
+    # Default values if config.py not found
+    BAUD=115200
+    SERIAL=os.getenv("WRB_SERIAL","/dev/ttyACM0")
+    READY_PIN=23
+    USB_LED_PIN=24
+    READY_ACTIVE_LOW=True
+    USB_LED_ACTIVE_LOW=True
+    MIX_FREQ=44100
+    MIX_BUF=512
+    RESCAN_SEC=1.0
+
+# Audio device configuration
+os.environ.setdefault("SDL_AUDIODRIVER","alsa")
+
+print(f"[WRB] Configuration: BAUD={BAUD}, SERIAL={SERIAL}, READY_PIN={READY_PIN}, USB_LED_PIN={USB_LED_PIN}", flush=True)
+
+def usb_mount_dirs():
+    """Find all mounted USB drives"""
+    base="/media"
+    if not os.path.isdir(base):
+        return []
+    
+    mounted_dirs = []
+    try:
+        for d in sorted(os.listdir(base)):
+            full_path = os.path.join(base, d)
+            if os.path.isdir(full_path) and os.path.ismount(full_path):
+                mounted_dirs.append(full_path)
+                print(f"[WRB] Found mounted USB drive: {full_path}", flush=True)
+    except Exception as e:
+        print(f"[WRB] Error scanning USB drives: {e}", flush=True)
+    
+    return mounted_dirs
+
+def update_usb_led(usb_led, has_usb_drives):
+    """Update USB LED based on mount status"""
+    try:
+        if has_usb_drives:
+            usb_led.on()
+            print("[WRB] USB LED ON - USB drives mounted", flush=True)
+        else:
+            usb_led.off()
+            print("[WRB] USB LED OFF - No USB drives mounted", flush=True)
+    except Exception as e:
+        print(f"[WRB] USB LED error: {e}", flush=True)
+
+def pick_source():
+    """Select audio source: USB drives first, then local storage"""
+    print("[WRB] Scanning for audio sources...", flush=True)
+    
+    # Check USB drives first
+    for mnt in usb_mount_dirs():
+        print(f"[WRB] Checking USB drive: {mnt}", flush=True)
+        B1=sorted(glob.glob(os.path.join(mnt,"button1*.wav")))
+        B2=sorted(glob.glob(os.path.join(mnt,"button2*.wav")))
+        H1=sorted(glob.glob(os.path.join(mnt,"hold1*.wav")))
+        H2=sorted(glob.glob(os.path.join(mnt,"hold2*.wav")))
+        
+        if B1 or B2 or H1 or H2:
+            print(f"[WRB] Using USB drive: {mnt} (button1={len(B1)}, button2={len(B2)}, hold1={len(H1)}, hold2={len(H2)})", flush=True)
+            return (f"USB:{mnt}", mnt, B1[:1], B2, H1[:1], H2)
+        else:
+            print(f"[WRB] No audio files found on {mnt}", flush=True)
+    
+    # Fall back to local storage
+    local=os.path.expanduser("~/WRB/sounds")
+    os.makedirs(local, exist_ok=True)
+    print(f"[WRB] Checking local storage: {local}", flush=True)
+    
+    B1=sorted(glob.glob(os.path.join(local,"button1*.wav")))
+    B2=sorted(glob.glob(os.path.join(local,"button2*.wav")))
+    H1=sorted(glob.glob(os.path.join(local,"hold1*.wav")))
+    H2=sorted(glob.glob(os.path.join(local,"hold2*.wav")))
+    
+    print(f"[WRB] Using local storage (button1={len(B1)}, button2={len(B2)}, hold1={len(H1)}, hold2={len(H2)})", flush=True)
+    return ("LOCAL", local, B1[:1], B2, H1[:1], H2)
+
+def load_sounds(B1, B2, H1, H2):
+    """Load pygame Sound objects - keep them in memory for instant playback"""
+    import pygame
+    button1 = pygame.mixer.Sound(B1[0]) if B1 and os.path.exists(B1[0]) else None
+    button2 = [pygame.mixer.Sound(p) for p in B2 if os.path.exists(p)]
+    hold1 = pygame.mixer.Sound(H1[0]) if H1 and os.path.exists(H1[0]) else None
+    hold2 = [pygame.mixer.Sound(p) for p in H2 if os.path.exists(p)]
+    return button1, button2, hold1, hold2
+
+def classify(s):
+    u=s.strip().upper()
+    if "BTN1" in u and "HOLD" in u: return 'H1'
+    if "BTN2" in u and "HOLD" in u: return 'H2'
+    if "BTN1" in u: return 'B1'
+    if "BTN2" in u: return 'B2'
+    return None
+
+def fade_out_sound(channel, duration=2.0):
+    """Fade out a sound over the specified duration"""
+    def fade_thread():
+        start_volume = 1.0
+        steps = int(duration * 10)  # 10 steps per second
+        step_delay = duration / steps
+        
+        for i in range(steps + 1):
+            volume = start_volume * (1.0 - (i / steps))
+            channel.set_volume(volume)
+            time.sleep(step_delay)
+        
+        # Stop the channel after fade
+        channel.stop()
+        print(f"[WRB] Sound faded out over {duration}s", flush=True)
+    
+    # Start fade in background thread
+    thread = threading.Thread(target=fade_thread, daemon=True)
+    thread.start()
+    return thread
+
+def init_audio():
+    """Initialize pygame mixer once and keep it open"""
+    import pygame
+    try:
+        pygame.mixer.init(frequency=MIX_FREQ, size=-16, channels=2, buffer=MIX_BUF)
+        pygame.mixer.set_num_channels(16)
+        print("[WRB] audio: mixer ready", flush=True)
+        return True
+    except Exception as e:
+        print(f"[WRB] audio init failed: {e}", flush=True)
+        return False
+
+def wait_serial():
+    prefs=[SERIAL,"/dev/ttyACM0","/dev/ttyACM1","/dev/ttyUSB0","/dev/ttyUSB1","/dev/serial0","/dev/ttyAMA0","/dev/ttyS0"]
+    print("[WRB] waiting for serial…", flush=True)
+    while True:
+        for p in prefs:
+            try: return serial.Serial(p, BAUD, timeout=0.1)
+            except: pass
+        time.sleep(0.1)  # Reduced from 0.3 to 0.1 seconds
+
+def breathing_led(led, duration=2.0, steps=20):
+    """Breathing LED effect from 0 to 100% brightness"""
+    import math
+    for i in range(int(steps * 2)):  # 2 cycles
+        # Create smooth breathing curve using sine wave
+        brightness = (math.sin(i * math.pi / steps) + 1) / 2  # 0 to 1
+        if READY_ACTIVE_LOW:
+            # For active low LEDs, invert the brightness
+            brightness = 1 - brightness
+        led.value = brightness
+        time.sleep(duration / (steps * 2))
+
+def main():
+    """Main function - initializes system and runs main loop"""
+    import pygame
+    from gpiozero import PWMLED
+    
+    print("[WRB] Starting WRB Enhanced Audio System...", flush=True)
+    
+    # Initialize LEDs
+    led = PWMLED(READY_PIN, active_high=(not READY_ACTIVE_LOW))
+    usb_led = LED(USB_LED_PIN, active_high=(not USB_LED_ACTIVE_LOW))
+    
+    # Startup sequence
+    print("[WRB] Initializing system...", flush=True)
+    breathing_led(led, duration=0.8, steps=8)
+    
+    # Initialize audio
+    print("[WRB] Initializing audio system...", flush=True)
+    if not init_audio():
+        print("[WRB] Audio initialization failed, continuing without audio", flush=True)
+    
+    # Load sound files
+    print("[WRB] Loading sound files...", flush=True)
+    src_tag, base, B1, B2, H1, H2 = pick_source()
+    BUTTON1, BUTTON2, HOLD1, HOLD2 = load_sounds(B1, B2, H1, H2)
+    print(f"[WRB] Audio source: {src_tag} (button1={B1[:1]}, button2={len(BUTTON2)}, hold1={H1[:1]}, hold2={len(HOLD2)})", flush=True)
+
+    # Connect to ESP32
+    print("[WRB] Connecting to ESP32...", flush=True)
+    ser = wait_serial()
+    print(f"[WRB] Connected to serial port: {ser.port}", flush=True)
+
+    # Set ready LED
+    if READY_ACTIVE_LOW:
+        led.value = 0.75  # 25% brightness for active low
+    else:
+        led.value = 0.25  # 25% brightness for active high
+    
+    print("[WRB] System ready - LED at 25% brightness", flush=True)
+    
+    # Initialize USB LED status
+    usb_dirs = usb_mount_dirs()
+    has_usb_drives = len(usb_dirs) > 0
+    update_usb_led(usb_led, has_usb_drives)
+    
+    # Initialize variables
+    last_scan = time.time()
+    last_button_press = {'B1': 0, 'B2': 0}
+    double_tap_threshold = 0.5  # 500ms window for double-tap
+    fade_threads = []  # Track active fade threads
+    last_usb_status = False  # Track USB mount status
+
+    # Main loop
+    while True:
+        try:
+            # Check for audio source changes every RESCAN_SEC seconds
+            if time.time() - last_scan > RESCAN_SEC:
+                print(f"[WRB] Scanning for audio source changes...", flush=True)
+                
+                # Check USB mount status and update LED
+                usb_dirs = usb_mount_dirs()
+                has_usb_drives = len(usb_dirs) > 0
+                if has_usb_drives != last_usb_status:
+                    update_usb_led(usb_led, has_usb_drives)
+                    last_usb_status = has_usb_drives
+                
+                new_tag, new_base, nB1, nB2, nH1, nH2 = pick_source()
+                
+                # Check if source has changed
+                if (new_tag != src_tag) or (nB1 != B1) or (nB2 != B2) or (nH1 != H1) or (nH2 != H2):
+                    print(f"[WRB] Audio source changed from {src_tag} to {new_tag}", flush=True)
+                    
+                    # Stop all currently playing sounds
+                    for ch in range(0, 15): 
+                        pygame.mixer.Channel(ch).stop()
+                    
+                    # Load new sounds
+                    BUTTON1, BUTTON2, HOLD1, HOLD2 = load_sounds(nB1, nB2, nH1, nH2)
+                    src_tag, base, B1, B2, H1, H2 = new_tag, new_base, nB1, nB2, nH1, nH2
+                    
+                    print(f"[WRB] Audio source updated: {src_tag} (button1={B1[:1]}, button2={len(BUTTON2)}, hold1={H1[:1]}, hold2={len(HOLD2)})", flush=True)
+                else:
+                    print(f"[WRB] No audio source changes detected", flush=True)
+                
+                last_scan = time.time()
+
+            # Read serial data
+            try:
+                line = ser.readline().decode(errors="ignore")
+            except Exception as e:
+                print(f"[WRB] Serial read error: {e}", flush=True)
+                time.sleep(0.05)
+                continue
+                
+            if not line:
+                continue
+            
+        t=classify(line)
+        current_time = time.time()
+        
+        if t=='B1':
+            # Check for double-tap
+            if current_time - last_button_press['B1'] < double_tap_threshold:
+                print("[WRB] DOUBLE-TAP B1 - Fading out all sounds", flush=True)
+                # Fade out all playing sounds
+                for ch in range(0, 15):
+                    if pygame.mixer.Channel(ch).get_busy():
+                        fade_threads.append(fade_out_sound(pygame.mixer.Channel(ch), 2.0))
+                # LED feedback for double-tap
+                try:
+                    for _ in range(3):  # Triple blink for double-tap
+                        led.value = 0.0 if READY_ACTIVE_LOW else 1.0
+                        time.sleep(0.1)
+                        led.value = 0.75 if READY_ACTIVE_LOW else 0.25
+                        time.sleep(0.1)
+                except: pass
+            else:
+                # Normal button press
+                if BUTTON1: pygame.mixer.Channel(0).play(BUTTON1)
+                print("[WRB] BUTTON1 (src=%s loaded=%s)"%(src_tag,bool(BUTTON1)), flush=True)
+                try: 
+                    # Blink to 100% brightness
+                    led.value = 0.0 if READY_ACTIVE_LOW else 1.0
+                    time.sleep(0.1)
+                    # Return to 25% brightness
+                    led.value = 0.75 if READY_ACTIVE_LOW else 0.25
+                except: pass
+            last_button_press['B1'] = current_time
+            
+        elif t=='B2':
+            # Check for double-tap
+            if current_time - last_button_press['B2'] < double_tap_threshold:
+                print("[WRB] DOUBLE-TAP B2 - Fading out all sounds", flush=True)
+                # Fade out all playing sounds
+                for ch in range(0, 15):
+                    if pygame.mixer.Channel(ch).get_busy():
+                        fade_threads.append(fade_out_sound(pygame.mixer.Channel(ch), 2.0))
+                # LED feedback for double-tap
+                try:
+                    for _ in range(3):  # Triple blink for double-tap
+                        led.value = 0.0 if READY_ACTIVE_LOW else 1.0
+                        time.sleep(0.1)
+                        led.value = 0.75 if READY_ACTIVE_LOW else 0.25
+                        time.sleep(0.1)
+                except: pass
+            else:
+                # Normal button press
+                if BUTTON2: pygame.mixer.Channel(1).play(random.choice(BUTTON2))
+                print("[WRB] BUTTON2 (src=%s loaded=%d)"%(src_tag,len(BUTTON2)), flush=True)
+                try: 
+                    # Blink to 100% brightness
+                    led.value = 0.0 if READY_ACTIVE_LOW else 1.0
+                    time.sleep(0.1)
+                    # Return to 25% brightness
+                    led.value = 0.75 if READY_ACTIVE_LOW else 0.25
+                except: pass
+            last_button_press['B2'] = current_time
+            
+        elif t=='H1':
+            if HOLD1: pygame.mixer.Channel(2).play(HOLD1)
+            print("[WRB] HOLD1 (src=%s loaded=%s)"%(src_tag,bool(HOLD1)), flush=True)
+            try: 
+                # Blink to 100% brightness
+                led.value = 0.0 if READY_ACTIVE_LOW else 1.0
+                time.sleep(0.1)
+                # Return to 25% brightness
+                led.value = 0.75 if READY_ACTIVE_LOW else 0.25
+            except: pass
+        elif t=='H2':
+            if HOLD2: pygame.mixer.Channel(3).play(random.choice(HOLD2))
+            print("[WRB] HOLD2 (src=%s loaded=%d)"%(src_tag,len(HOLD2)), flush=True)
+            try: 
+                # Blink to 100% brightness
+                led.value = 0.0 if READY_ACTIVE_LOW else 1.0
+                time.sleep(0.1)
+                # Return to 25% brightness
+                led.value = 0.75 if READY_ACTIVE_LOW else 0.25
+            except Exception as e:
+                print(f"[WRB] LED error: {e}", flush=True)
+                
+        except Exception as e:
+            print(f"[WRB] Main loop error: {e}", flush=True)
+            time.sleep(0.1)  # Brief pause before continuing
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("[WRB] Shutdown requested by user", flush=True)
+        sys.exit(0)
+    except Exception as e:
+        print(f"[WRB] Fatal error: {e}", flush=True)
+        sys.exit(1)

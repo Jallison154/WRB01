@@ -1,0 +1,14 @@
+# WRB PiScript Dependencies
+# Install with: pip3 install -r requirements.txt
+
+# Audio and game library for sound playback
+pygame>=2.1.0
+
+# Serial communication with ESP32
+pyserial>=3.5
+
+# GPIO control for LED feedback
+gpiozero>=1.6.2
+
+# Note: On Raspberry Pi, you may also need to install system packages:
+# sudo apt install python3-pygame python3-serial python3-gpiozero
