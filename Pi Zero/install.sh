@@ -24,6 +24,9 @@ WRB_LOG_DIR="$WRB_HOME/logs"
 WRB_SOUNDS_DIR="$WRB_HOME/sounds"
 WRB_DEFAULT_SOUNDS="$WRB_HOME/default_sounds"
 
+# Ensure WRB_HOME directory exists
+mkdir -p "$WRB_HOME"
+
 # Service configuration
 SERVICE_NAME="WRB-enhanced.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
@@ -267,11 +270,25 @@ create_directories() {
     mkdir -p "$WRB_SOUNDS_DIR"
     mkdir -p "$WRB_DEFAULT_SOUNDS"
     
+    # Verify directories were created
+    if [ -d "$WRB_HOME" ]; then
+        print_success "WRB home directory created: $WRB_HOME"
+    else
+        print_error "Failed to create WRB home directory"
+        exit 1
+    fi
+    
     print_success "Directories created successfully"
 }
 
 copy_files() {
     print_step "Copying WRB files..."
+    
+    # Ensure WRB_HOME exists before copying
+    if [ ! -d "$WRB_HOME" ]; then
+        print_error "WRB home directory does not exist: $WRB_HOME"
+        exit 1
+    fi
     
     # Copy main files
     cp "$REPO_DIR/Pi Zero/PiScript" "$WRB_HOME/"
