@@ -295,10 +295,25 @@ copy_files() {
         print_info "Default sounds copied"
     fi
     
+    # Create sounds directory and link default sounds
+    print_info "Setting up sound files..."
+    mkdir -p "$WRB_HOME/sounds"
+    
+    # Link default sounds to sounds directory
+    if [ -d "$WRB_DEFAULT_SOUNDS" ]; then
+        for sound_file in "$WRB_DEFAULT_SOUNDS"/*.wav; do
+            if [ -f "$sound_file" ]; then
+                filename=$(basename "$sound_file")
+                ln -sf "$sound_file" "$WRB_HOME/sounds/$filename"
+                print_info "Linked $filename"
+            fi
+        done
+    fi
+    
     # Make scripts executable
     chmod +x "$WRB_HOME/PiScript"
     
-    print_success "Files copied successfully"
+    print_success "Files copied and sounds linked successfully"
 }
 
 # =============================================================================

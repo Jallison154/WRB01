@@ -477,24 +477,54 @@ def find_sound_files():
         for usb_path in usb_paths:
             load_sounds_from_path(usb_path, "USB")
     
-    # Check local sounds directory
+    # Check local sounds directory (current working directory)
     local_sounds_dir = Path.cwd() / "sounds"
     if local_sounds_dir.exists():
         load_sounds_from_path(local_sounds_dir, "Local")
+        logger.info(f"Checking local sounds directory: {local_sounds_dir}")
+    else:
+        logger.info(f"Local sounds directory not found: {local_sounds_dir}")
     
-    # Load default sounds if no custom sounds found
-    default_sounds_dir = Path(__file__).parent / "default_sounds"
+    # Check WRB installation sounds directory
+    wrb_sounds_dir = Path.home() / "WRB" / "sounds"
+    if wrb_sounds_dir.exists():
+        load_sounds_from_path(wrb_sounds_dir, "WRB")
+        logger.info(f"Checking WRB sounds directory: {wrb_sounds_dir}")
+    
+    # Check default sounds in script directory
+    default_sounds_dir = Path(__file__).parent / "Default Sounds"
     if default_sounds_dir.exists():
         load_sounds_from_path(default_sounds_dir, "Default")
+        logger.info(f"Checking default sounds directory: {default_sounds_dir}")
+    
+    # Check alternative default sounds directory
+    alt_default_sounds_dir = Path(__file__).parent / "default_sounds"
+    if alt_default_sounds_dir.exists():
+        load_sounds_from_path(alt_default_sounds_dir, "Default")
+        logger.info(f"Checking alternative default sounds directory: {alt_default_sounds_dir}")
     
     # Create test sounds if no sounds found at all
     if not any(sound_files.values()):
-        logger.info("No sound files found, creating test sounds")
+        logger.warning("No sound files found anywhere, creating test sounds")
         create_default_sounds()
+    else:
+        logger.info("Sound files found and loaded")
     
     # Log loaded sounds
+    total_sounds = 0
     for sound_type, files in sound_files.items():
         logger.info(f"Loaded {len(files)} {sound_type} sounds")
+        total_sounds += len(files)
+    
+    if total_sounds == 0:
+        logger.error("No sound files available - audio will not work")
+        logger.error("Please ensure sound files are in one of these locations:")
+        logger.error(f"  - {local_sounds_dir}")
+        logger.error(f"  - {wrb_sounds_dir}")
+        logger.error(f"  - {default_sounds_dir}")
+        logger.error(f"  - {alt_default_sounds_dir}")
+    else:
+        logger.info(f"Total sound files loaded: {total_sounds}")
 
 def load_sounds_from_path(path, source):
     """Load sound files from a specific path"""
