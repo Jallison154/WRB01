@@ -142,57 +142,58 @@ install_dependencies() {
 }
 
 install_python_packages() {
-    print_step "Installing Python packages..."
+    print_step "Installing Python packages (2024 method)..."
     
-    # Check if we're in an externally managed environment
-    if python3 -c "import sys; print('externally-managed' in str(sys.path))" 2>/dev/null; then
-        print_info "Detected externally managed Python environment"
-        print_info "Installing Python packages via apt instead of pip..."
-        
-        # Install Python packages via apt (system packages)
-        PYTHON_PACKAGES=(
-            "python3-pygame"
-            "python3-serial"
-            "python3-numpy"
-            "python3-rpi.gpio"
-            "python3-psutil"
-            "python3-pip"
-            "python3-venv"
-            "python3-full"
-        )
-        
-        for package in "${PYTHON_PACKAGES[@]}"; do
-            print_info "Installing $package via apt..."
-            sudo apt install -y "$package"
-        done
-        
-        print_success "Python packages installed via apt"
-    else
-        print_info "Installing Python packages via pip..."
-        
-        # Try user installation first
-        if pip3 install --user --upgrade pip 2>/dev/null; then
-            pip3 install --user pygame pyserial numpy RPi.GPIO psutil
-            print_success "Python packages installed via pip (user)"
-        else
-            print_warning "Pip installation failed, falling back to apt..."
-            
-            # Fallback to apt installation
-            PYTHON_PACKAGES=(
-                "python3-pygame"
-                "python3-serial"
-                "python3-numpy"
-                "python3-rpi.gpio"
-                "python3-psutil"
-            )
-            
-            for package in "${PYTHON_PACKAGES[@]}"; do
-                sudo apt install -y "$package"
-            done
-            
-            print_success "Python packages installed via apt (fallback)"
-        fi
-    fi
+    # Method 1: Try apt installation first
+    print_info "Attempting apt installation..."
+    PYTHON_PACKAGES=(
+        "python3-pygame"
+        "python3-serial"
+        "python3-numpy"
+        "python3-rpi.gpio"
+        "python3-psutil"
+        "python3-pip"
+        "python3-venv"
+        "python3-full"
+    )
+    
+    for package in "${PYTHON_PACKAGES[@]}"; do
+        print_info "Installing $package via apt..."
+        sudo apt install -y "$package" || print_warning "Failed to install $package via apt"
+    done
+    
+    # Method 2: Use 2024 workaround for externally-managed-environment
+    print_info "Using 2024 workaround for externally-managed-environment..."
+    print_info "Installing packages with --user --break-system-packages..."
+    
+    # Try the 2024 recommended workaround
+    pip3 install --user --break-system-packages \
+        pygame \
+        pyserial \
+        numpy \
+        RPi.GPIO \
+        psutil || print_warning "Some packages failed to install with pip"
+    
+    # Method 3: Test what's available
+    print_info "Testing package availability..."
+    python3 -c "
+import sys
+packages = ['pygame', 'serial', 'numpy', 'RPi.GPIO', 'psutil']
+available = []
+missing = []
+
+for pkg in packages:
+    try:
+        __import__(pkg)
+        available.append(pkg)
+    except ImportError:
+        missing.append(pkg)
+
+print(f'Available packages: {available}')
+print(f'Missing packages: {missing}')
+" || print_warning "Package test failed"
+    
+    print_success "Python packages installation completed"
 }
 
 create_virtual_environment() {
@@ -995,6 +996,11 @@ verify_installation() {
         ((errors++))
     fi
     
+    if [ ! -f "$WRB_HOME/fix_python_2024.sh" ]; then
+        print_error "2024 Python fix script not found"
+        ((errors++))
+    fi
+    
     if [ ! -d "$WRB_DEFAULT_SOUNDS" ]; then
         print_error "Default sounds directory not found"
         ((errors++))
@@ -1070,6 +1076,13 @@ main_installation() {
         create_virtual_environment
     fi
     
+    # Copy the 2024 fix script
+    if [ -f "$REPO_DIR/Pi Zero/fix_python_2024.sh" ]; then
+        cp "$REPO_DIR/Pi Zero/fix_python_2024.sh" "$WRB_HOME/"
+        chmod +x "$WRB_HOME/fix_python_2024.sh"
+        print_info "2024 Python fix script copied"
+    fi
+    
     # Repository setup
     clone_repository
     
@@ -1126,12 +1139,15 @@ main_installation() {
         print_info "✓ PulseAudio and ALSA support"
         print_info "✓ USB and HDMI audio support"
         print_info "✓ Comprehensive audio testing"
+        print_info "✓ 2024 Python environment fixes"
+        print_info "✓ Externally-managed-environment workarounds"
         echo
         print_info "System status available at: $WRB_HOME/logs/system_status.json"
         print_info "Health monitor logs: $WRB_HOME/logs/health_monitor.log"
         print_info "Alert logs: $WRB_HOME/logs/alerts.log"
         echo
         print_info "For troubleshooting, see the documentation in $WRB_HOME"
+        print_info "If you have Python package issues, run: $WRB_HOME/fix_python_2024.sh"
     else
         print_error "Installation completed with errors"
         print_info "Please check the error messages above and fix any issues"
