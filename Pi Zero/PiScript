@@ -87,9 +87,13 @@ def setup_gpio():
         # Turn on ready LED
         GPIO.output(READY_PIN, GPIO.HIGH)
         logger.info("GPIO initialized successfully")
+        logger.info(f"Ready LED (GPIO {READY_PIN}) should be ON")
+        logger.info(f"USB LED (GPIO {USB_LED_PIN}) is OFF (no USB drive)")
         return True
     except Exception as e:
         logger.error(f"GPIO setup failed: {e}")
+        logger.error("Make sure the script is running with proper permissions")
+        logger.error("Try running with: sudo python3 PiScript")
         return False
 
 def cleanup_gpio():
@@ -402,9 +406,11 @@ def update_usb_status():
         
         if usb_drive_mounted:
             logger.info("USB drive detected, reloading sounds")
+            logger.info(f"USB LED (GPIO {USB_LED_PIN}) should be ON")
             find_sound_files()
         else:
             logger.info("USB drive removed")
+            logger.info(f"USB LED (GPIO {USB_LED_PIN}) should be OFF")
 
 # =============================================================================
 # SERIAL COMMUNICATION

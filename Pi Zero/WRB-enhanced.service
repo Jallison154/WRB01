@@ -13,15 +13,17 @@ WorkingDirectory=/home/pi/WRB
 Environment=HOME=/home/pi
 Environment=USER=pi
 Environment=WRB_SERIAL=/dev/ttyACM0
-Environment=SDL_AUDIODRIVER=pulse
-Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
+Environment=SDL_AUDIODRIVER=alsa
+Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
+ExecStartPre=/bin/sleep 15
+ExecStartPre=/bin/bash -c 'pulseaudio --start || true'
 ExecStart=/usr/bin/python3 /home/pi/WRB/PiScript
 Restart=on-failure
-RestartSec=10
+RestartSec=15
 RestartPreventExitStatus=1
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=30
+TimeoutStartSec=60
 TimeoutStopSec=10
 
 [Install]

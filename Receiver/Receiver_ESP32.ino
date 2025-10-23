@@ -79,7 +79,7 @@ void showHoldDoubleBlink(uint32_t now){
 void ledTask(){
   uint32_t now = millis();
   bool anyLinked = false;
-  bool recentActivity = (now - lastBtnActivityMs) < 1000; // 1 second after button press
+  bool recentActivity = (now - lastBtnActivityMs) < 200; // 200ms after button press
   bool recentHoldActivity = (now - lastHoldActivityMs) < 800; // 800ms after hold command
   
   // Check if any transmitters are linked
@@ -167,9 +167,6 @@ void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len){
       sendAck(info->src_addr);
       txLinks[txIndex].lastPingMs = now;
       txLinks[txIndex].linked = true;
-      
-      // Immediate LED update for connection
-      ledLinked();
       break;
       
     case MSG_BTN:
@@ -183,9 +180,6 @@ void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len){
         Serial.printf("BTN%u\n", btnId);
         
         lastBtnActivityMs = now;
-        
-        // Immediate LED update for button press
-        ledOn();
         
         // Send ACK back
         sendAck(info->src_addr);
@@ -203,9 +197,6 @@ void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len){
         Serial.printf("HOLD%u\n", btnId);
         
         lastHoldActivityMs = now;  // Set hold activity timestamp for double blink
-        
-        // Immediate LED update for hold command (start double blink)
-        showHoldDoubleBlink(now);
         
         // Send ACK back
         sendAck(info->src_addr);
@@ -272,5 +263,5 @@ void loop(){
     Serial.printf("Status: %d transmitters, %d linked\n", numTxLinks, linkedCount);
   }
   
-  delay(10);
+  delay(1);
 }
