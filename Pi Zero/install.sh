@@ -233,6 +233,26 @@ EOF
 # REPOSITORY FUNCTIONS
 # =============================================================================
 
+test_repository_connection() {
+    print_info "Testing repository connection..."
+    
+    # Test if we can reach the repository
+    if git ls-remote "$REPO_URL" &> /dev/null; then
+        print_success "Repository is accessible"
+        
+        # List available branches
+        print_info "Available branches:"
+        git ls-remote --heads "$REPO_URL" | sed 's/.*refs\/heads\///' | while read branch; do
+            print_info "  - $branch"
+        done
+        return 0
+    else
+        print_error "Cannot access repository: $REPO_URL"
+        print_error "Please check your internet connection"
+        return 1
+    fi
+}
+
 clone_repository() {
     print_step "Cloning WRB repository..."
     
@@ -242,16 +262,34 @@ clone_repository() {
         rm -rf "$REPO_DIR"
     fi
     
+    # Check if git is available
+    if ! command -v git &> /dev/null; then
+        print_error "Git is not installed. Please install git first:"
+        print_error "sudo apt update && sudo apt install git"
+        exit 1
+    fi
+    
     # Try to clone WRB01 branch first
     print_info "Attempting to clone WRB01 branch..."
-    if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
+    print_info "Repository: $REPO_URL"
+    print_info "Branch: $BRANCH_UPDATE"
+    
+    if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$REPO_DIR"; then
         print_success "Successfully cloned WRB01 branch"
     else
-        print_warning "WRB01 branch not available, trying main branch..."
-        if git clone -b "$BRANCH_MAIN" "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
-            print_success "Successfully cloned main branch"
+        print_warning "WRB01 branch failed, trying without branch specification..."
+        if git clone "$REPO_URL" "$REPO_DIR"; then
+            print_info "Cloned repository, checking out WRB01 branch..."
+            cd "$REPO_DIR"
+            if git checkout WRB01; then
+                print_success "Successfully checked out WRB01 branch"
+            else
+                print_warning "WRB01 branch not found, staying on default branch"
+            fi
+            cd - > /dev/null
         else
             print_error "Failed to clone repository"
+            print_error "Please check your internet connection and try again"
             exit 1
         fi
     fi
@@ -1116,6 +1154,7 @@ main_installation() {
     fi
     
     # Repository setup
+    test_repository_connection
     clone_repository
     
     # Directory and file setup
