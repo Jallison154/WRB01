@@ -37,12 +37,12 @@ USB_LED_PIN = 24    # USB LED (blue) - indicates USB drive status
 GPIO_MODE = "BCM"   # Use BCM numbering (GPIO numbers)
 
 # =============================================================================
-# AUDIO CONFIGURATION
+# AUDIO CONFIGURATION - OPTIMIZED FOR PI ZERO W
 # =============================================================================
 
-# Audio mixer settings
-MIX_FREQ = 44100    # Sample rate (Hz)
-MIX_BUF = 512       # Buffer size (samples)
+# Audio mixer settings - optimized for Pi Zero W
+MIX_FREQ = 44100    # Sample rate (Hz) - standard for Pi Zero W
+MIX_BUF = 1024      # Buffer size (samples) - increased for stability
 MIX_CHANNELS = 2    # Stereo (2 channels)
 MIX_BITS = 16       # 16-bit audio
 
@@ -57,6 +57,22 @@ FADE_OUT_STEPS = 50      # Number of volume steps for fade-out
 # Audio file settings
 SUPPORTED_FORMATS = ['.wav']  # Supported audio file formats
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB maximum file size
+
+# Pi Zero W specific audio settings
+AUDIO_DRIVER_PRIORITY = ["pulse", "alsa", "hdmi"]  # Preferred audio drivers in order
+AUDIO_BUFFER_SIZE = 1024  # Buffer size for Pi Zero W
+AUDIO_THREAD_PRIORITY = "high"  # Audio thread priority
+AUDIO_OPTIMIZE_FOR_PI_ZERO = True  # Enable Pi Zero W optimizations
+
+# Audio device detection settings
+AUTO_DETECT_AUDIO_DEVICES = True
+AUDIO_DEVICE_TIMEOUT = 5  # seconds
+AUDIO_FALLBACK_ENABLED = True  # Enable fallback audio setup
+
+# Audio quality settings for Pi Zero W
+AUDIO_QUALITY_MODE = "balanced"  # "performance", "balanced", "quality"
+AUDIO_RESAMPLING_ENABLED = False  # Disable resampling to reduce CPU load
+AUDIO_HARDWARE_ACCELERATION = True  # Enable hardware acceleration if available
 
 # =============================================================================
 # FILE PATH CONFIGURATION

@@ -108,7 +108,7 @@ update_system() {
 install_dependencies() {
     print_step "Installing required packages..."
     
-    # Essential packages
+    # Essential packages - optimized for Pi Zero W
     PACKAGES=(
         "python3"
         "python3-pip"
@@ -121,10 +121,16 @@ install_dependencies() {
         "wget"
         "unzip"
         "alsa-utils"
+        "pulseaudio"
+        "pulseaudio-utils"
         "libasound2-dev"
         "portaudio19-dev"
         "python3-setuptools"
         "python3-wheel"
+        "sox"
+        "libsox-fmt-all"
+        "pavucontrol"
+        "python3-rpi.gpio"
     )
     
     for package in "${PACKAGES[@]}"; do
@@ -195,17 +201,27 @@ copy_files() {
     # Copy main files
     cp "$REPO_DIR/Pi Zero/PiScript" "$WRB_HOME/"
     cp "$REPO_DIR/Pi Zero/config.py" "$WRB_HOME/"
-    cp "$REPO_DIR/Pi Zero/remote_diagnostics.py" "$WRB_HOME/"
+    
+    # Copy new audio testing and setup files
+    if [ -f "$REPO_DIR/Pi Zero/test_audio.py" ]; then
+        cp "$REPO_DIR/Pi Zero/test_audio.py" "$WRB_HOME/"
+        print_info "Audio test script copied"
+    fi
+    
+    if [ -f "$REPO_DIR/Pi Zero/setup_audio.sh" ]; then
+        cp "$REPO_DIR/Pi Zero/setup_audio.sh" "$WRB_HOME/"
+        chmod +x "$WRB_HOME/setup_audio.sh"
+        print_info "Audio setup script copied"
+    fi
     
     # Copy default sounds if they exist
-    if [ -d "$REPO_DIR/Pi Zero/default_sounds" ]; then
-        cp -r "$REPO_DIR/Pi Zero/default_sounds"/* "$WRB_DEFAULT_SOUNDS/"
+    if [ -d "$REPO_DIR/Pi Zero/Default Sounds" ]; then
+        cp -r "$REPO_DIR/Pi Zero/Default Sounds"/* "$WRB_DEFAULT_SOUNDS/"
         print_info "Default sounds copied"
     fi
     
     # Make scripts executable
     chmod +x "$WRB_HOME/PiScript"
-    chmod +x "$WRB_HOME/remote_diagnostics.py"
     
     print_success "Files copied successfully"
 }
@@ -215,28 +231,127 @@ copy_files() {
 # =============================================================================
 
 setup_audio() {
-    print_step "Setting up audio system..."
+    print_step "Setting up audio system for Pi Zero W..."
     
-    # Add user to audio group
-    sudo usermod -a -G audio "$USER"
+    # Add user to audio groups
+    sudo usermod -a -G audio,pulse,pulse-access "$USER"
     
-    # Configure ALSA
-    if [ ! -f "$HOME/.asoundrc" ]; then
-        cat > "$HOME/.asoundrc" << EOF
+    # Configure PulseAudio for Pi Zero W
+    print_info "Configuring PulseAudio..."
+    mkdir -p ~/.config/pulse
+    cat > ~/.config/pulse/daemon.conf << EOF
+# PulseAudio daemon configuration for Pi Zero W
+default-sample-rate = 44100
+default-sample-format = s16le
+default-sample-channels = 2
+default-fragments = 4
+default-fragment-size-msec = 25
+high-priority = yes
+nice-level = -11
+realtime-scheduling = yes
+realtime-priority = 9
+rlimit-rt = 9
+daemonize = no
+avoid-resampling = yes
+EOF
+    
+    # Configure ALSA with fallback support
+    print_info "Configuring ALSA..."
+    sudo tee /etc/asound.conf > /dev/null << EOF
+# ALSA configuration for Pi Zero W
 pcm.!default {
     type pulse
 }
 ctl.!default {
     type pulse
 }
+
+# USB audio support
+pcm.usb {
+    type hw
+    card 1
+    device 0
+}
+
+ctl.usb {
+    type hw
+    card 1
+}
+
+# HDMI audio support
+pcm.hdmi {
+    type hw
+    card 0
+    device 0
+}
+
+ctl.hdmi {
+    type hw
+    card 0
+}
 EOF
-        print_info "ALSA configuration created"
+    
+    # Enable PulseAudio user service
+    print_info "Enabling PulseAudio user service..."
+    systemctl --user enable pulseaudio
+    systemctl --user start pulseaudio
+    
+    # Configure HDMI audio if using HDMI display
+    print_info "Configuring HDMI audio..."
+    if [ -f /boot/config.txt ]; then
+        # Enable HDMI audio
+        if ! grep -q "hdmi_drive=2" /boot/config.txt; then
+            echo "hdmi_drive=2" | sudo tee -a /boot/config.txt
+        fi
+        
+        # Disable audio jack (if using HDMI)
+        if ! grep -q "dtparam=audio=off" /boot/config.txt; then
+            echo "dtparam=audio=off" | sudo tee -a /boot/config.txt
+        fi
     fi
     
-    # Configure ALSA for direct audio access
-    print_info "ALSA configuration already created above"
+    # Set up audio environment variables
+    print_info "Setting up audio environment..."
+    cat >> ~/.bashrc << 'EOF'
+
+# WRB Audio Environment Variables
+export SDL_AUDIODRIVER=pulse
+export PULSE_RUNTIME_PATH=/run/user/$(id -u)/pulse
+export AUDIODEV=plughw:0,0
+EOF
     
-    print_success "Audio system configured"
+    print_success "Audio system configured for Pi Zero W"
+}
+
+test_audio_system() {
+    print_step "Testing audio system..."
+    
+    # Run audio test if available
+    if [ -f "$WRB_HOME/test_audio.py" ]; then
+        print_info "Running comprehensive audio test..."
+        if python3 "$WRB_HOME/test_audio.py"; then
+            print_success "Audio system test passed"
+        else
+            print_warning "Audio system test failed - audio may not work properly"
+            print_info "You can run the test manually later: python3 $WRB_HOME/test_audio.py"
+        fi
+    else
+        print_info "Audio test script not available, skipping test"
+    fi
+    
+    # Test basic audio commands
+    print_info "Testing basic audio commands..."
+    if command -v aplay >/dev/null 2>&1; then
+        print_info "ALSA audio tools available"
+    else
+        print_warning "ALSA audio tools not available"
+    fi
+    
+    if command -v pactl >/dev/null 2>&1; then
+        print_info "PulseAudio tools available"
+    else
+        print_warning "PulseAudio tools not available"
+    fi
 }
 
 copy_default_sounds() {
@@ -795,8 +910,13 @@ verify_installation() {
         ((errors++))
     fi
     
-    if [ ! -f "$WRB_HOME/remote_diagnostics.py" ]; then
-        print_error "Remote diagnostics script not found"
+    if [ ! -f "$WRB_HOME/test_audio.py" ]; then
+        print_error "Audio test script not found"
+        ((errors++))
+    fi
+    
+    if [ ! -f "$WRB_HOME/setup_audio.sh" ]; then
+        print_error "Audio setup script not found"
         ((errors++))
     fi
     
@@ -880,6 +1000,7 @@ main_installation() {
     # Audio setup
     setup_audio
     copy_default_sounds
+    test_audio_system
     
     # Permission setup
     setup_permissions
@@ -921,6 +1042,10 @@ main_installation() {
         print_info "✓ Log rotation to prevent disk space issues"
         print_info "✓ ESP32 serial connection monitoring"
         print_info "✓ Audio system health checks"
+        print_info "✓ Pi Zero W optimized audio system"
+        print_info "✓ PulseAudio and ALSA support"
+        print_info "✓ USB and HDMI audio support"
+        print_info "✓ Comprehensive audio testing"
         echo
         print_info "System status available at: $WRB_HOME/logs/system_status.json"
         print_info "Health monitor logs: $WRB_HOME/logs/health_monitor.log"

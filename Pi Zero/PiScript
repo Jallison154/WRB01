@@ -210,35 +210,139 @@ def cleanup_gpio():
 # AUDIO SYSTEM
 # =============================================================================
 
+def detect_audio_devices():
+    """Detect available audio devices and return the best option"""
+    try:
+        # Check for PulseAudio first (preferred on modern Pi OS)
+        result = subprocess.run(['pactl', 'info'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            logger.info("PulseAudio detected")
+            return "pulse"
+        
+        # Check ALSA devices
+        result = subprocess.run(['aplay', '-l'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            logger.info("ALSA devices found")
+            return "alsa"
+        
+        # Check for HDMI audio
+        result = subprocess.run(['tvservice', '-s'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and "HDMI" in result.stdout:
+            logger.info("HDMI audio detected")
+            return "hdmi"
+        
+        logger.warning("No audio devices detected")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Audio device detection failed: {e}")
+        return None
+
 def setup_audio():
-    """Initialize audio system - simplified approach based on reference code"""
+    """Initialize audio system with improved Pi Zero W support"""
     global mixer, channels
     
     try:
-        # Set audio environment variables (like the reference code)
-        os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
-        os.environ.setdefault("AUDIODEV", "plughw:0,0")
+        # Detect best audio device
+        audio_device = detect_audio_devices()
         
-        # Initialize mixer ONCE and keep it open (like reference code)
-        pygame.mixer.init(
+        if not audio_device:
+            logger.error("No audio devices found")
+            return False
+        
+        # Configure environment based on detected device
+        if audio_device == "pulse":
+            os.environ.setdefault("SDL_AUDIODRIVER", "pulse")
+            os.environ.setdefault("PULSE_RUNTIME_PATH", "/run/user/1000/pulse")
+            logger.info("Using PulseAudio driver")
+        elif audio_device == "alsa":
+            os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
+            # Try to find the best ALSA device
+            try:
+                result = subprocess.run(['aplay', '-l'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    # Look for USB audio devices first, then HDMI
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'USB' in line or 'card 1' in line:
+                            os.environ.setdefault("AUDIODEV", "plughw:1,0")
+                            break
+                        elif 'HDMI' in line:
+                            os.environ.setdefault("AUDIODEV", "plughw:0,0")
+                            break
+                    else:
+                        os.environ.setdefault("AUDIODEV", "plughw:0,0")
+            except:
+                os.environ.setdefault("AUDIODEV", "plughw:0,0")
+            logger.info("Using ALSA driver")
+        elif audio_device == "hdmi":
+            os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
+            os.environ.setdefault("AUDIODEV", "plughw:0,0")
+            logger.info("Using HDMI audio")
+        
+        # Initialize pygame mixer with optimized settings for Pi Zero W
+        pygame.mixer.pre_init(
             frequency=MIX_FREQ,
             size=-16,  # 16-bit signed
             channels=2,  # Stereo
+            buffer=MIX_BUF,
+            allowedchanges=pygame.AUDIO_ALLOW_FREQUENCY_CHANGE
+        )
+        
+        pygame.mixer.init(
+            frequency=MIX_FREQ,
+            size=-16,
+            channels=2,
             buffer=MIX_BUF
         )
         
-        # Set number of channels (like reference code)
+        # Set number of channels
         pygame.mixer.set_num_channels(16)
         
         # Create audio channels
         for i in range(4):
             channels[i] = pygame.mixer.Channel(i)
         
-        logger.info("Audio system initialized successfully")
-        logger.info("Audio: mixer ready")
-        return True
+        # Test audio with a simple beep
+        if test_audio_output():
+            logger.info("Audio system initialized successfully")
+            logger.info(f"Audio device: {audio_device}")
+            return True
+        else:
+            logger.error("Audio test failed")
+            return False
+            
     except Exception as e:
         logger.error(f"Audio setup failed: {e}")
+        # Try fallback to basic ALSA
+        try:
+            logger.info("Attempting fallback audio setup...")
+            os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
+            pygame.mixer.init()
+            if test_audio_output():
+                logger.info("Fallback audio setup successful")
+                return True
+        except Exception as fallback_error:
+            logger.error(f"Fallback audio setup failed: {fallback_error}")
+        
+        return False
+
+def test_audio_output():
+    """Test audio output with a simple beep"""
+    try:
+        # Create a simple test sound
+        test_sound = create_test_sound(440, 0.1)  # 440Hz for 0.1 seconds
+        if test_sound:
+            # Play test sound
+            test_channel = pygame.mixer.Channel(0)
+            test_channel.play(test_sound)
+            time.sleep(0.2)  # Wait for sound to play
+            test_channel.stop()
+            logger.info("Audio test successful")
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Audio test failed: {e}")
         return False
 
 def cleanup_audio():
@@ -276,6 +380,81 @@ def create_test_sound(frequency=440, duration=0.5):
     except Exception as e:
         logger.error(f"Test sound creation failed: {e}")
         return None
+
+def diagnose_audio_system():
+    """Comprehensive audio system diagnosis"""
+    logger.info("=== Audio System Diagnosis ===")
+    
+    # Check audio devices
+    logger.info("Checking audio devices...")
+    try:
+        result = subprocess.run(['aplay', '-l'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            logger.info("ALSA devices:")
+            for line in result.stdout.split('\n'):
+                if line.strip():
+                    logger.info(f"  {line}")
+        else:
+            logger.warning("No ALSA devices found")
+    except Exception as e:
+        logger.error(f"ALSA check failed: {e}")
+    
+    # Check PulseAudio
+    logger.info("Checking PulseAudio...")
+    try:
+        result = subprocess.run(['pactl', 'info'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            logger.info("PulseAudio is running")
+            # Get sink info
+            result = subprocess.run(['pactl', 'list', 'sinks', 'short'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                logger.info("PulseAudio sinks:")
+                for line in result.stdout.split('\n'):
+                    if line.strip():
+                        logger.info(f"  {line}")
+        else:
+            logger.warning("PulseAudio not running")
+    except Exception as e:
+        logger.error(f"PulseAudio check failed: {e}")
+    
+    # Check HDMI status
+    logger.info("Checking HDMI audio...")
+    try:
+        result = subprocess.run(['tvservice', '-s'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            logger.info(f"HDMI status: {result.stdout.strip()}")
+        else:
+            logger.warning("Could not check HDMI status")
+    except Exception as e:
+        logger.error(f"HDMI check failed: {e}")
+    
+    # Test audio output
+    logger.info("Testing audio output...")
+    if test_audio_output():
+        logger.info("✓ Audio test passed")
+    else:
+        logger.error("✗ Audio test failed")
+    
+    logger.info("=== End Audio Diagnosis ===")
+
+def optimize_audio_for_pi_zero():
+    """Apply Pi Zero W specific audio optimizations"""
+    try:
+        # Set optimal buffer sizes for Pi Zero W
+        os.environ.setdefault("SDL_AUDIO_BUFFER_SIZE", "1024")
+        os.environ.setdefault("SDL_AUDIO_FREQUENCY", "44100")
+        
+        # Disable audio resampling to reduce CPU load
+        os.environ.setdefault("SDL_AUDIO_ALLOW_FREQUENCY_CHANGE", "0")
+        
+        # Set audio thread priority
+        os.environ.setdefault("SDL_AUDIO_THREAD_PRIORITY", "high")
+        
+        logger.info("Applied Pi Zero W audio optimizations")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to apply audio optimizations: {e}")
+        return False
 
 # =============================================================================
 # SOUND FILE MANAGEMENT
@@ -762,6 +941,12 @@ def main():
     # Setup signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Apply Pi Zero W optimizations
+    optimize_audio_for_pi_zero()
+    
+    # Run audio diagnostics
+    diagnose_audio_system()
     
     # Initialize components
     if not setup_gpio():
