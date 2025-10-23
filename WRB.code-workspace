@@ -3,5 +3,25 @@
         {
             "path": "."
         }
-    ]
+    ],
+    "settings": {
+        "files.exclude": {
+            "**/__pycache__": true,
+            "**/*.pyc": true,
+            "**/logs": true,
+            "**/node_modules": true
+        },
+        "python.defaultInterpreterPath": "/usr/bin/python3",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "arduino.path": "/usr/share/arduino",
+        "arduino.board": "esp32:esp32:xiao_esp32c3"
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-python.python",
+            "ms-vscode.cpptools",
+            "vsciot-vscode.vscode-arduino"
+        ]
+    }
 }

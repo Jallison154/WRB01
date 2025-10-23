@@ -1,239 +1,334 @@
 #!/bin/bash
-# Complete WRB Pi Installation Script
-# This single script handles everything needed for installation
+# WRB Enhanced Audio System - One-Command Installation Script
+# Raspberry Pi ESP32 Wireless Button System
+# 
+# This script provides a complete one-command installation for the WRB system.
+# It handles all dependencies, configuration, and service setup automatically.
 
 set -e  # Exit on any error
 
-echo "=========================================="
-echo "  WRB Pi Installation Script"
-echo "=========================================="
-echo ""
+# =============================================================================
+# CONFIGURATION VARIABLES
+# =============================================================================
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Installation paths
+WRB_HOME="$HOME/WRB"
+WRB_LOG_DIR="$WRB_HOME/logs"
+WRB_SOUNDS_DIR="$WRB_HOME/sounds"
+WRB_DEFAULT_SOUNDS="$WRB_HOME/default_sounds"
+
+# Service configuration
+SERVICE_NAME="WRB-enhanced.service"
+SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
+
+# Repository information
+REPO_URL="https://github.com/Jallison154/TheBigWRB.git"
+BRANCH_UPDATE="Update-1.0"
+BRANCH_MAIN="main"
+REPO_DIR="$HOME/TheBigWRB"
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+print_header() {
+    echo -e "${BLUE}================================${NC}"
+    echo -e "${BLUE}  WRB Enhanced Audio System     ${NC}"
+    echo -e "${BLUE}  Installation Script v1.0      ${NC}"
+    echo -e "${BLUE}================================${NC}"
+    echo
+}
+
+print_step() {
+    echo -e "${YELLOW}[STEP]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
 
 # Check if running as root
-if [ "$EUID" -eq 0 ]; then
-    echo "❌ Please don't run this script as root. Run as pi user instead."
-    exit 1
-fi
-
-# Auto-detect and navigate to the correct directory
-if [ ! -f "PiScript" ]; then
-    echo "🔍 PiScript not found in current directory, searching..."
-    
-    # Try common locations
-    if [ -f "Pi Zero/PiScript" ]; then
-        echo "📁 Found in Pi Zero subdirectory, navigating..."
-        cd "Pi Zero"
-    elif [ -f "../Pi Zero/PiScript" ]; then
-        echo "📁 Found in parent Pi Zero directory, navigating..."
-        cd "../Pi Zero"
-    elif [ -f "~/TheBigWRB/Pi Zero/PiScript" ]; then
-        echo "📁 Found in TheBigWRB directory, navigating..."
-        cd "~/TheBigWRB/Pi Zero"
-    else
-        echo "❌ PiScript not found. Please run this from the Pi Zero directory or clone the repository first."
-        echo "   Try: git clone https://github.com/Jallison154/TheBigWRB.git ~/TheBigWRB"
+check_root() {
+    if [[ $EUID -eq 0 ]]; then
+        print_error "This script should not be run as root"
+        print_info "Please run as a regular user (pi)"
         exit 1
     fi
-fi
+}
 
-echo "✅ Starting WRB Pi installation..."
-echo ""
+# Check if running on Raspberry Pi
+check_raspberry_pi() {
+    if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
+        print_warning "This script is designed for Raspberry Pi"
+        print_info "Continuing anyway..."
+    fi
+}
 
-# Step 1: Update system
-echo "📦 Updating system packages..."
-sudo apt update
-sudo apt upgrade -y
+# Check internet connectivity
+check_internet() {
+    print_step "Checking internet connectivity..."
+    if ! ping -c 1 google.com >/dev/null 2>&1; then
+        print_error "No internet connection detected"
+        print_info "Please ensure your Raspberry Pi is connected to the internet"
+        exit 1
+    fi
+    print_success "Internet connection verified"
+}
 
-# Step 2: Install required packages
-echo "📦 Installing required packages..."
-sudo apt install -y python3-pip python3-pygame python3-serial python3-gpiozero sox git alsa-utils python3-venv
+# =============================================================================
+# SYSTEM UPDATE FUNCTIONS
+# =============================================================================
 
-# Step 3: Create directory structure
-echo "📁 Creating directory structure..."
-mkdir -p ~/WRB/sounds
-echo "✅ WRB directory structure created"
+update_system() {
+    print_step "Updating system packages..."
+    sudo apt update -y
+    sudo apt upgrade -y
+    print_success "System packages updated"
+}
 
-# Step 4: Copy all files
-echo "📋 Copying application files..."
+install_dependencies() {
+    print_step "Installing required packages..."
+    
+    # Essential packages
+    PACKAGES=(
+        "python3"
+        "python3-pip"
+        "python3-dev"
+        "python3-pygame"
+        "python3-serial"
+        "python3-numpy"
+        "git"
+        "curl"
+        "wget"
+        "unzip"
+        "alsa-utils"
+        "pulseaudio"
+        "pulseaudio-utils"
+        "libasound2-dev"
+        "portaudio19-dev"
+        "python3-setuptools"
+        "python3-wheel"
+    )
+    
+    for package in "${PACKAGES[@]}"; do
+        print_info "Installing $package..."
+        sudo apt install -y "$package"
+    done
+    
+    print_success "All packages installed successfully"
+}
 
-# Get the directory where this script is located (should be Pi Zero directory)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "🔍 Script directory: $SCRIPT_DIR"
+install_python_packages() {
+    print_step "Installing Python packages..."
+    
+    # Install Python packages via pip
+    pip3 install --user --upgrade pip
+    pip3 install --user pygame pyserial numpy RPi.GPIO
+    
+    print_success "Python packages installed successfully"
+}
 
-# List files in the script directory to debug
-echo "📁 Files in script directory:"
-ls -la "$SCRIPT_DIR" | grep -E "\.(py|txt)$|PiScript" || echo "No Python files found"
+# =============================================================================
+# REPOSITORY FUNCTIONS
+# =============================================================================
 
-# Copy files from the Pi Zero directory with better error handling
-echo "📋 Copying files..."
-FILES_COPIED=0
-
-# Essential files that must be copied
-ESSENTIAL_FILES=("PiScript" "config.py")
-OPTIONAL_FILES=("monitor_system.py" "test_esp32_connection.py" "test_system_integration.py" "requirements.txt")
-
-# Copy essential files
-for file in "${ESSENTIAL_FILES[@]}"; do
-    if [ -f "$SCRIPT_DIR/$file" ]; then
-        cp "$SCRIPT_DIR/$file" ~/WRB/ && echo "✅ $file copied" && ((FILES_COPIED++))
+clone_repository() {
+    print_step "Cloning WRB repository..."
+    
+    # Remove existing repository if it exists
+    if [ -d "$REPO_DIR" ]; then
+        print_info "Removing existing repository..."
+        rm -rf "$REPO_DIR"
+    fi
+    
+    # Try to clone Update-1.0 branch first
+    print_info "Attempting to clone Update-1.0 branch..."
+    if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
+        print_success "Successfully cloned Update-1.0 branch"
     else
-        echo "❌ $file not found in $SCRIPT_DIR - THIS IS REQUIRED!"
+        print_warning "Update-1.0 branch not available, trying main branch..."
+        if git clone -b "$BRANCH_MAIN" "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
+            print_success "Successfully cloned main branch"
+        else
+            print_error "Failed to clone repository"
+            exit 1
+        fi
     fi
-done
+}
 
-# Copy optional files
-for file in "${OPTIONAL_FILES[@]}"; do
-    if [ -f "$SCRIPT_DIR/$file" ]; then
-        cp "$SCRIPT_DIR/$file" ~/WRB/ && echo "✅ $file copied" && ((FILES_COPIED++))
+# =============================================================================
+# DIRECTORY SETUP FUNCTIONS
+# =============================================================================
+
+create_directories() {
+    print_step "Creating WRB directories..."
+    
+    # Create main directories
+    mkdir -p "$WRB_HOME"
+    mkdir -p "$WRB_LOG_DIR"
+    mkdir -p "$WRB_SOUNDS_DIR"
+    mkdir -p "$WRB_DEFAULT_SOUNDS"
+    
+    print_success "Directories created successfully"
+}
+
+copy_files() {
+    print_step "Copying WRB files..."
+    
+    # Copy main files
+    cp "$REPO_DIR/Pi Zero/PiScript" "$WRB_HOME/"
+    cp "$REPO_DIR/Pi Zero/config.py" "$WRB_HOME/"
+    
+    # Copy default sounds if they exist
+    if [ -d "$REPO_DIR/Pi Zero/default_sounds" ]; then
+        cp -r "$REPO_DIR/Pi Zero/default_sounds"/* "$WRB_DEFAULT_SOUNDS/"
+        print_info "Default sounds copied"
+    fi
+    
+    # Make scripts executable
+    chmod +x "$WRB_HOME/PiScript"
+    
+    print_success "Files copied successfully"
+}
+
+# =============================================================================
+# AUDIO SETUP FUNCTIONS
+# =============================================================================
+
+setup_audio() {
+    print_step "Setting up audio system..."
+    
+    # Add user to audio group
+    sudo usermod -a -G audio "$USER"
+    
+    # Configure ALSA
+    if [ ! -f "$HOME/.asoundrc" ]; then
+        cat > "$HOME/.asoundrc" << EOF
+pcm.!default {
+    type pulse
+}
+ctl.!default {
+    type pulse
+}
+EOF
+        print_info "ALSA configuration created"
+    fi
+    
+    # Configure PulseAudio
+    if [ ! -d "$HOME/.config/pulse" ]; then
+        mkdir -p "$HOME/.config/pulse"
+    fi
+    
+    # Create PulseAudio configuration
+    cat > "$HOME/.config/pulse/default.pa" << EOF
+#!/usr/bin/pulseaudio -nF
+load-module module-device-restore
+load-module module-stream-restore
+load-module module-card-restore
+load-module module-augment-properties
+load-module module-switch-on-port-available
+load-module module-udev-detect
+load-module module-alsa-sink
+load-module module-alsa-source device=hw:1,0
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-socket
+load-module module-default-device-restore
+load-module module-rescue-streams
+load-module module-always-sink
+load-module module-suspend-on-idle
+load-module module-position-event-sounds
+load-module module-filter-heuristics
+load-module module-filter-apply
+EOF
+        print_info "PulseAudio configuration created"
+    fi
+    
+    print_success "Audio system configured"
+}
+
+copy_default_sounds() {
+    print_step "Copying default sound files..."
+    
+    # Copy existing default sound files from repository
+    if [ -d "$REPO_DIR/Pi Zero/Default Sounds" ]; then
+        print_info "Copying default sounds from repository..."
+        cp -r "$REPO_DIR/Pi Zero/Default Sounds"/* "$WRB_DEFAULT_SOUNDS/"
+        print_success "Default sound files copied successfully"
+        
+        # List copied files
+        print_info "Default sound files:"
+        ls -la "$WRB_DEFAULT_SOUNDS"/*.wav 2>/dev/null | while read line; do
+            print_info "  $line"
+        done
     else
-        echo "⚠️  $file not found in $SCRIPT_DIR (optional)"
+        print_warning "Default sounds directory not found in repository"
+        print_info "No default sounds will be available"
     fi
-done
+}
 
-# Copy default sound files if they exist
-if [ -d "$SCRIPT_DIR/default_sounds" ]; then
-    echo "🎵 Copying default sound files..."
-    cp "$SCRIPT_DIR/default_sounds"/*.wav ~/WRB/sounds/ 2>/dev/null && echo "✅ Default sounds copied" && ((FILES_COPIED++))
-else
-    echo "📁 No default_sounds directory found in $SCRIPT_DIR"
-fi
+# =============================================================================
+# PERMISSION SETUP FUNCTIONS
+# =============================================================================
 
-echo "📊 Files copied: $FILES_COPIED"
+setup_permissions() {
+    print_step "Setting up permissions..."
+    
+    # Add user to necessary groups
+    sudo usermod -a -G audio,gpio,dialout "$USER"
+    
+    # Set permissions for WRB directory
+    chmod -R 755 "$WRB_HOME"
+    
+    # Make sure PiScript is executable
+    chmod +x "$WRB_HOME/PiScript"
+    
+    print_success "Permissions configured"
+}
 
-# Check if essential files were copied
-if [ ! -f ~/WRB/PiScript ]; then
-    echo "❌ CRITICAL: PiScript not found after copying!"
-    echo "🔍 Current directory contents:"
-    ls -la "$SCRIPT_DIR"
-    echo "🔍 Target directory contents:"
-    ls -la ~/WRB/
-    exit 1
-fi
+# =============================================================================
+# SYSTEMD SERVICE FUNCTIONS
+# =============================================================================
 
-# Step 5: Set permissions
-echo "🔐 Setting file permissions..."
-
-# If essential files are missing, provide clear error message
-if [ ! -f ~/WRB/PiScript ]; then
-    echo "❌ CRITICAL: Essential files not found!"
-    echo "🔍 Current script directory: $SCRIPT_DIR"
-    echo "🔍 Files in script directory:"
-    ls -la "$SCRIPT_DIR"
-    echo ""
-    echo "🔍 Target directory: ~/WRB/"
-    echo "🔍 Files in target directory:"
-    ls -la ~/WRB/
-    echo ""
-    echo "❌ Installation failed - essential files not found"
-    echo "💡 Make sure you're running the install script from the Pi Zero directory"
-    echo "💡 The script should be located in the same directory as PiScript and config.py"
-    exit 1
-fi
-
-# Set permissions for all files
-if [ -f ~/WRB/PiScript ]; then
-    chmod +x ~/WRB/PiScript
-    echo "✅ PiScript permissions set"
-else
-    echo "❌ PiScript still not found after all attempts"
-fi
-
-chmod +x ~/WRB/*.py 2>/dev/null && echo "✅ Python files permissions set" || echo "⚠️  No Python files found to set permissions"
-
-# Step 6: Install Python dependencies
-echo "🐍 Installing Python dependencies..."
-
-# Install required packages via apt (more reliable than pip)
-echo "📦 Installing Python packages via apt..."
-sudo apt install -y python3-pygame python3-serial python3-gpiozero python3-pip
-
-# Try to install additional packages via pip if requirements.txt exists
-if [ -f ~/WRB/requirements.txt ]; then
-    echo "📦 Installing additional packages from requirements.txt..."
-    pip3 install -r ~/WRB/requirements.txt --break-system-packages 2>/dev/null || {
-        echo "⚠️  Some pip packages failed, but core packages are installed via apt"
-    }
-else
-    echo "⚠️  requirements.txt not found, using apt packages only"
-fi
-
-# Verify pygame installation
-echo "🧪 Testing pygame installation..."
-if python3 -c "import pygame; print('pygame version:', pygame.version.ver)" 2>/dev/null; then
-    echo "✅ pygame is working correctly"
-else
-    echo "❌ pygame installation failed, trying alternative method..."
-    # Try installing pygame via pip as fallback
-    pip3 install pygame --break-system-packages 2>/dev/null || {
-        echo "❌ Could not install pygame - manual installation may be required"
-    }
-fi
-
-echo "✅ Python dependencies installation completed"
-
-# Step 7: Audio setup
-echo "🔊 Setting up audio..."
-sudo usermod -a -G audio $USER
-
-# Basic audio setup for USB audio interface
-echo "🔊 Setting up basic audio configuration..."
-
-# Create basic PulseAudio configuration
-mkdir -p ~/.config/pulse
-cat > ~/.config/pulse/client.conf << 'PULSE_EOF'
-default-server = unix:/run/user/1000/pulse/native
-PULSE_EOF
-
-# Step 8: Create sample sound files if none exist
-echo "🎵 Checking for sound files..."
-if [ ! -f ~/WRB/sounds/button1.wav ] || [ ! -f ~/WRB/sounds/button2.wav ] || [ ! -f ~/WRB/sounds/hold1.wav ] || [ ! -f ~/WRB/sounds/hold2.wav ]; then
-    echo "📁 Creating sample sound files..."
-    # Create sample sounds if default files not available
-    if [ ! -f ~/WRB/sounds/button1.wav ]; then
-        sox -n -r 44100 -c 2 ~/WRB/sounds/button1.wav synth 0.5 sine 800 fade h 0.1 0.1 2>/dev/null || echo "⚠️  sox not available, skipping sample sound creation"
-    fi
-    if [ ! -f ~/WRB/sounds/button2.wav ]; then
-        sox -n -r 44100 -c 2 ~/WRB/sounds/button2.wav synth 0.5 sine 400 fade h 0.1 0.1 2>/dev/null || echo "⚠️  sox not available, skipping sample sound creation"
-    fi
-    if [ ! -f ~/WRB/sounds/hold1.wav ]; then
-        sox -n -r 44100 -c 2 ~/WRB/sounds/hold1.wav synth 1.0 sine 1000 fade h 0.1 0.1 2>/dev/null || echo "⚠️  sox not available, skipping sample sound creation"
-    fi
-    if [ ! -f ~/WRB/sounds/hold2.wav ]; then
-        sox -n -r 44100 -c 2 ~/WRB/sounds/hold2.wav synth 1.0 sine 600 fade h 0.1 0.1 2>/dev/null || echo "⚠️  sox not available, skipping sample sound creation"
-    fi
-    echo "✅ Sample sound files created"
-else
-    echo "✅ Sound files already exist"
-fi
-
-# Step 9: Install systemd service
-echo "⚙️ Installing systemd service..."
-# Create service file with actual username
-ACTUAL_USER=$(whoami)
-echo "🔧 Using username: $ACTUAL_USER"
-
-sudo tee /etc/systemd/system/WRB-enhanced.service >/dev/null << 'SERVICE_EOF'
+create_service_file() {
+    print_step "Creating systemd service file..."
+    
+    cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=WRB Enhanced Audio System
 After=network.target sound.target
 Wants=network.target sound.target
 StartLimitInterval=300
 StartLimitBurst=3
-StartLimitAction=none
 
 [Service]
 Type=simple
-User=wrb01
+User=$USER
 Group=audio
-WorkingDirectory=/home/wrb01/WRB
-Environment=HOME=/home/wrb01
-Environment=USER=wrb01
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+WorkingDirectory=$WRB_HOME
+Environment=HOME=$HOME
+Environment=USER=$USER
 Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=pulse
-Environment=PULSE_RUNTIME_PATH=/run/user/1000/pulse
-# Standard audio setup
-ExecStart=/usr/bin/python3 /home/wrb01/WRB/PiScript
+Environment=PULSE_RUNTIME_PATH=/run/user/$(id -u)/pulse
+ExecStart=/usr/bin/python3 $WRB_HOME/PiScript
 Restart=on-failure
 RestartSec=10
 RestartPreventExitStatus=1
@@ -244,150 +339,189 @@ TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
-SERVICE_EOF
-
-# Step 10: Enable and start service with auto-start
-echo "🚀 Starting service with auto-start on boot..."
-sudo systemctl daemon-reload
-sudo systemctl enable WRB-enhanced.service
-sudo systemctl start WRB-enhanced.service
-
-# Additional reliability: Create a startup script that ensures service starts
-echo "🔧 Creating auto-start reliability script..."
-sudo tee /etc/systemd/system/WRB-auto-start.service >/dev/null << 'AUTO_START_EOF'
-[Unit]
-Description=WRB Auto-Start Service
-After=network.target
-Wants=network.target
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'sleep 10 && systemctl restart WRB-enhanced.service'
-RemainAfterExit=yes
-User=root
-
-[Install]
-WantedBy=multi-user.target
-AUTO_START_EOF
-
-# Enable the auto-start service
-sudo systemctl enable WRB-auto-start.service
-sudo systemctl start WRB-auto-start.service
-
-# Create a watchdog script that monitors and restarts the service
-echo "🐕 Creating watchdog script..."
-sudo tee /usr/local/bin/WRB-watchdog.sh >/dev/null << 'WATCHDOG_EOF'
-#!/bin/bash
-# WRB Service Watchdog Script
-# This script monitors the WRB service and restarts it if it fails
-
-LOG_FILE="/var/log/WRB-watchdog.log"
-SERVICE_NAME="WRB-enhanced.service"
-
-log_message() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+EOF
+    
+    print_success "Service file created"
 }
 
-check_service() {
-    if ! systemctl is-active --quiet "$SERVICE_NAME"; then
-        log_message "Service $SERVICE_NAME is not running, attempting restart..."
-        systemctl restart "$SERVICE_NAME"
-        sleep 5
-        
-        if systemctl is-active --quiet "$SERVICE_NAME"; then
-            log_message "Service $SERVICE_NAME restarted successfully"
-        else
-            log_message "Failed to restart service $SERVICE_NAME"
-        fi
+enable_service() {
+    print_step "Enabling WRB service..."
+    
+    # Reload systemd daemon
+    sudo systemctl daemon-reload
+    
+    # Enable the service
+    sudo systemctl enable "$SERVICE_NAME"
+    
+    print_success "Service enabled successfully"
+}
+
+start_service() {
+    print_step "Starting WRB service..."
+    
+    # Start the service
+    sudo systemctl start "$SERVICE_NAME"
+    
+    # Wait a moment and check status
+    sleep 3
+    if systemctl is-active --quiet "$SERVICE_NAME"; then
+        print_success "Service started successfully"
+    else
+        print_warning "Service may not have started properly"
+        print_info "Check service status with: sudo systemctl status $SERVICE_NAME"
     fi
 }
 
-# Main watchdog loop
-while true; do
-    check_service
-    sleep 30  # Check every 30 seconds
-done
-WATCHDOG_EOF
+# =============================================================================
+# VERIFICATION FUNCTIONS
+# =============================================================================
 
-sudo chmod +x /usr/local/bin/WRB-watchdog.sh
+verify_installation() {
+    print_step "Verifying installation..."
+    
+    local errors=0
+    
+    # Check if files exist
+    if [ ! -f "$WRB_HOME/PiScript" ]; then
+        print_error "PiScript not found"
+        ((errors++))
+    fi
+    
+    if [ ! -f "$WRB_HOME/config.py" ]; then
+        print_error "config.py not found"
+        ((errors++))
+    fi
+    
+    if [ ! -d "$WRB_DEFAULT_SOUNDS" ]; then
+        print_error "Default sounds directory not found"
+        ((errors++))
+    fi
+    
+    # Check if service exists
+    if [ ! -f "$SERVICE_FILE" ]; then
+        print_error "Service file not found"
+        ((errors++))
+    fi
+    
+    # Check service status
+    if ! systemctl is-enabled --quiet "$SERVICE_NAME"; then
+        print_error "Service not enabled"
+        ((errors++))
+    fi
+    
+    if [ $errors -eq 0 ]; then
+        print_success "Installation verification passed"
+        return 0
+    else
+        print_error "Installation verification failed ($errors errors)"
+        return 1
+    fi
+}
 
-# Create watchdog service
-sudo tee /etc/systemd/system/WRB-watchdog.service >/dev/null << 'WATCHDOG_SERVICE_EOF'
-[Unit]
-Description=WRB Service Watchdog
-After=network.target
-Wants=network.target
+# =============================================================================
+# CLEANUP FUNCTIONS
+# =============================================================================
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/WRB-watchdog.sh
-Restart=always
-RestartSec=10
-User=root
+cleanup_installation() {
+    print_step "Cleaning up installation files..."
+    
+    # Remove repository directory
+    if [ -d "$REPO_DIR" ]; then
+        rm -rf "$REPO_DIR"
+        print_info "Repository directory removed"
+    fi
+    
+    print_success "Cleanup completed"
+}
 
-[Install]
-WantedBy=multi-user.target
-WATCHDOG_SERVICE_EOF
+# =============================================================================
+# MAIN INSTALLATION FUNCTION
+# =============================================================================
 
-# Enable and start the watchdog service
-sudo systemctl enable WRB-watchdog.service
-sudo systemctl start WRB-watchdog.service
+main_installation() {
+    print_header
+    
+    # Pre-installation checks
+    check_root
+    check_raspberry_pi
+    check_internet
+    
+    # System preparation
+    update_system
+    install_dependencies
+    install_python_packages
+    
+    # Repository setup
+    clone_repository
+    
+    # Directory and file setup
+    create_directories
+    copy_files
+    
+    # Audio setup
+    setup_audio
+    copy_default_sounds
+    
+    # Permission setup
+    setup_permissions
+    
+    # Service setup
+    create_service_file
+    enable_service
+    
+    # Cleanup
+    cleanup_installation
+    
+    # Verification
+    if verify_installation; then
+        print_success "WRB Enhanced Audio System installed successfully!"
+        echo
+        print_info "The system will start automatically on boot"
+        print_info "To start the service now, run: sudo systemctl start $SERVICE_NAME"
+        print_info "To check service status, run: sudo systemctl status $SERVICE_NAME"
+        print_info "To view logs, run: sudo journalctl -u $SERVICE_NAME -f"
+        echo
+        print_info "For troubleshooting, see the documentation in $WRB_HOME"
+    else
+        print_error "Installation completed with errors"
+        print_info "Please check the error messages above and fix any issues"
+        exit 1
+    fi
+}
 
-# Step 11: Wait and check status
-echo "⏳ Waiting for service to start..."
-sleep 3
+# =============================================================================
+# SCRIPT EXECUTION
+# =============================================================================
 
-echo ""
-echo "=========================================="
-echo "  Installation Complete!"
-echo "=========================================="
-echo ""
-
-# Check service status
-echo "📊 Service Status:"
-sudo systemctl status WRB-enhanced.service --no-pager
-
-echo ""
-echo "🔍 Auto-Start Services Status:"
-sudo systemctl status WRB-auto-start.service --no-pager
-sudo systemctl status WRB-watchdog.service --no-pager
-
-echo ""
-echo "🎉 WRB Pi system is now installed with MAXIMUM RELIABILITY!"
-echo ""
-echo "🚀 RELIABILITY FEATURES INSTALLED:"
-echo "  ✅ Auto-start on boot (WRB-enhanced.service)"
-echo "  ✅ Backup auto-start service (WRB-auto-start.service)"
-echo "  ✅ Watchdog monitoring (WRB-watchdog.service)"
-echo "  ✅ Automatic restart on failure"
-echo "  ✅ Service health monitoring every 30 seconds"
-echo ""
-echo "📋 Useful Commands:"
-echo "  Check main service:    sudo systemctl status WRB-enhanced.service"
-echo "  Check watchdog:        sudo systemctl status WRB-watchdog.service"
-echo "  View main logs:        sudo journalctl -u WRB-enhanced.service -f"
-echo "  View watchdog logs:    sudo journalctl -u WRB-watchdog.service -f"
-echo "  View watchdog file:    sudo tail -f /var/log/WRB-watchdog.log"
-echo "  Restart service:       sudo systemctl restart WRB-enhanced.service"
-echo "  Stop all services:     sudo systemctl stop WRB-enhanced WRB-watchdog"
-echo ""
-echo "🔧 Testing Commands:"
-echo "  Test ESP32:   python3 ~/WRB/test_esp32_connection.py"
-echo "  System test:  python3 ~/WRB/test_system_integration.py"
-echo "  Monitor:      python3 ~/WRB/monitor_system.py"
-echo ""
-echo "🎵 Sound Files:"
-echo "  Location:     ~/WRB/sounds/"
-echo "  Customize:    Replace button1*.wav, button2*.wav, hold1*.wav, hold2*.wav"
-echo ""
-echo "🔄 REBOOT TEST:"
-echo "  The system will automatically start after reboot:"
-echo "  sudo reboot"
-echo "  # After reboot, check: sudo systemctl status WRB-enhanced.service"
-echo ""
-echo "🛡️  MAXIMUM RELIABILITY ACHIEVED!"
-echo "  - Service auto-starts on boot"
-echo "  - Watchdog monitors and restarts if needed"
-echo "  - Backup auto-start service as failsafe"
-echo "  - Multiple restart attempts with backoff"
-echo ""
+# Handle command line arguments
+case "${1:-}" in
+    --help|-h)
+        echo "WRB Enhanced Audio System Installation Script"
+        echo
+        echo "Usage: $0 [OPTIONS]"
+        echo
+        echo "Options:"
+        echo "  --help, -h     Show this help message"
+        echo "  --version, -v  Show version information"
+        echo "  --verify       Verify installation without installing"
+        echo
+        exit 0
+        ;;
+    --version|-v)
+        echo "WRB Enhanced Audio System Installation Script v1.0"
+        exit 0
+        ;;
+    --verify)
+        print_header
+        verify_installation
+        exit $?
+        ;;
+    "")
+        main_installation
+        ;;
+    *)
+        print_error "Unknown option: $1"
+        print_info "Use --help for usage information"
+        exit 1
+        ;;
+esac

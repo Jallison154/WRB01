@@ -1,14 +1,21 @@
-# WRB PiScript Dependencies
-# Install with: pip3 install -r requirements.txt
+# WRB Enhanced Audio System - Python Requirements
+# Raspberry Pi ESP32 Wireless Button System
 
-# Audio and game library for sound playback
+# Core audio and multimedia packages
 pygame>=2.1.0
-
-# Serial communication with ESP32
 pyserial>=3.5
+numpy>=1.21.0
 
-# GPIO control for LED feedback
-gpiozero>=1.6.2
+# GPIO control for Raspberry Pi
+RPi.GPIO>=0.7.0
 
-# Note: On Raspberry Pi, you may also need to install system packages:
-# sudo apt install python3-pygame python3-serial python3-gpiozero
+# Additional utilities
+pathlib2>=2.3.0; python_version < "3.4"
+
+# Optional: Enhanced audio processing
+# scipy>=1.7.0  # Uncomment if advanced audio processing is needed
+# librosa>=0.8.0  # Uncomment if audio analysis is needed
+
+# Development and testing (optional)
+# pytest>=6.0.0  # Uncomment for testing
+# pytest-cov>=2.0.0  # Uncomment for test coverage
