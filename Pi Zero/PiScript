@@ -82,28 +82,45 @@ logger = setup_logging()
 # =============================================================================
 
 def setup_gpio():
-    """Initialize GPIO pins"""
+    """Initialize GPIO pins with PWM support"""
     try:
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(READY_PIN, GPIO.OUT)
         GPIO.setup(USB_LED_PIN, GPIO.OUT)
         
-        # Initialize PWM for LEDs
+        # Try to initialize PWM for LEDs
         global ready_pwm, usb_pwm
-        ready_pwm = GPIO.PWM(READY_PIN, 1000)  # 1kHz frequency
-        usb_pwm = GPIO.PWM(USB_LED_PIN, 1000)
-        
-        # Start PWM
-        ready_pwm.start(0)  # Start at 0% duty cycle
-        usb_pwm.start(0)
-        
-        # Set ready LED to 25% brightness
-        set_ready_led_brightness(25)
-        
-        logger.info("GPIO initialized successfully")
-        logger.info(f"Ready LED (GPIO {READY_PIN}) set to 25% brightness")
-        logger.info(f"USB LED (GPIO {USB_LED_PIN}) is OFF (no USB drive)")
-        return True
+        try:
+            ready_pwm = GPIO.PWM(READY_PIN, 1000)  # 1kHz frequency
+            usb_pwm = GPIO.PWM(USB_LED_PIN, 1000)
+            
+            # Start PWM
+            ready_pwm.start(0)  # Start at 0% duty cycle
+            usb_pwm.start(0)
+            
+            # Set ready LED to 25% brightness
+            set_ready_led_brightness(25)
+            
+            logger.info("GPIO initialized successfully with PWM support")
+            logger.info(f"Ready LED (GPIO {READY_PIN}) set to 25% brightness")
+            logger.info(f"USB LED (GPIO {USB_LED_PIN}) is OFF (no USB drive)")
+            return True
+            
+        except Exception as pwm_error:
+            logger.warning(f"PWM setup failed: {pwm_error}")
+            logger.info("Falling back to simple GPIO control")
+            
+            # Fallback to simple GPIO control
+            ready_pwm = None
+            usb_pwm = None
+            GPIO.output(READY_PIN, GPIO.HIGH)  # Turn on ready LED
+            GPIO.output(USB_LED_PIN, GPIO.LOW)  # Turn off USB LED
+            
+            logger.info("GPIO initialized with simple on/off control")
+            logger.info(f"Ready LED (GPIO {READY_PIN}) is ON")
+            logger.info(f"USB LED (GPIO {USB_LED_PIN}) is OFF")
+            return True
+            
     except Exception as e:
         logger.error(f"GPIO setup failed: {e}")
         logger.error("Make sure the script is running with proper permissions")
@@ -115,6 +132,9 @@ def set_ready_led_brightness(brightness):
     try:
         if ready_pwm:
             ready_pwm.ChangeDutyCycle(brightness)
+        else:
+            # Fallback to simple on/off
+            GPIO.output(READY_PIN, GPIO.HIGH if brightness > 0 else GPIO.LOW)
     except Exception as e:
         logger.error(f"Failed to set ready LED brightness: {e}")
 
@@ -123,6 +143,9 @@ def set_usb_led_brightness(brightness):
     try:
         if usb_pwm:
             usb_pwm.ChangeDutyCycle(brightness)
+        else:
+            # Fallback to simple on/off
+            GPIO.output(USB_LED_PIN, GPIO.HIGH if brightness > 0 else GPIO.LOW)
     except Exception as e:
         logger.error(f"Failed to set USB LED brightness: {e}")
 
@@ -135,6 +158,13 @@ def flash_ready_led():
             time.sleep(0.2)  # 200ms flash
             # Return to 25% brightness
             ready_pwm.ChangeDutyCycle(25)
+        else:
+            # Fallback: simple flash
+            GPIO.output(READY_PIN, GPIO.LOW)  # Flash off
+            time.sleep(0.1)
+            GPIO.output(READY_PIN, GPIO.HIGH)  # Flash on
+            time.sleep(0.2)
+            GPIO.output(READY_PIN, GPIO.HIGH)  # Keep on
     except Exception as e:
         logger.error(f"Failed to flash ready LED: {e}")
 
