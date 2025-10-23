@@ -49,6 +49,11 @@ MIX_BITS = 16       # 16-bit audio
 # Number of simultaneous audio channels
 MAX_AUDIO_CHANNELS = 4
 
+# Fade-out settings
+FADE_OUT_ENABLED = True
+FADE_OUT_DURATION = 1.0  # Fade-out duration in seconds
+FADE_OUT_STEPS = 50      # Number of volume steps for fade-out
+
 # Audio file settings
 SUPPORTED_FORMATS = ['.wav']  # Supported audio file formats
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB maximum file size

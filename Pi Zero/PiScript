@@ -288,7 +288,7 @@ def fade_out_channel(channel, fade_duration):
         
         # Get current volume
         current_volume = channel.get_volume()
-        steps = 50  # Number of fade steps
+        steps = FADE_OUT_STEPS  # Number of fade steps from config
         step_duration = fade_duration / steps
         volume_step = current_volume / steps
         
@@ -322,7 +322,7 @@ def play_sound(sound_type):
         
         # Check if the same sound type is already playing and fade it out
         if sound_type in active_sounds:
-            fade_out_sound(sound_type, 1.0)  # 1 second fade-out
+            fade_out_sound(sound_type, FADE_OUT_DURATION)  # Configurable fade-out
             time.sleep(0.1)  # Brief pause before starting new sound
         
         # Select a random sound
