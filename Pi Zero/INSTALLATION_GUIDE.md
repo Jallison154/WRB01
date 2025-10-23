@@ -21,11 +21,17 @@ This guide provides step-by-step instructions for installing and configuring the
 ### One-Command Installation (Recommended)
 
 ```bash
-# Install WRB system
-curl -sSL https://raw.githubusercontent.com/Jallison154/WRB01/main/Pi%20Zero/install.sh | bash
+# Clone repository and run manual installation
+git clone https://github.com/Jallison154/WRB01.git ~/WRB01
+cd ~/WRB01/Pi\ Zero
+chmod +x install.sh
+./install.sh
 ```
 
 This command will:
+- Clone the WRB01 repository
+- Navigate to the Pi Zero directory
+- Run the installation script
 - Update your system packages
 - Install all required dependencies
 - Download and configure the WRB system
@@ -35,15 +41,7 @@ This command will:
 
 ### Alternative Installation Methods
 
-#### Method 1: Direct Download
-```bash
-# Download and run installation script
-wget -O install.sh https://raw.githubusercontent.com/Jallison154/WRB01/main/Pi%20Zero/install.sh
-chmod +x install.sh
-./install.sh
-```
-
-#### Method 2: Git Clone
+#### Method 1: Direct Git Clone
 ```bash
 # Clone repository and install
 git clone https://github.com/Jallison154/WRB01.git ~/WRB01
@@ -51,6 +49,9 @@ cd ~/WRB01/Pi\ Zero
 chmod +x install.sh
 ./install.sh
 ```
+
+#### Method 2: Manual Installation
+Follow the manual installation steps below for complete control over the process.
 
 ## 🔧 Manual Installation
 
@@ -85,10 +86,18 @@ mkdir -p ~/WRB/{logs,sounds,default_sounds}
 # Clone repository
 git clone https://github.com/Jallison154/WRB01.git ~/WRB01
 
-# Copy files
+# Copy files to WRB directory
 cp ~/WRB01/Pi\ Zero/PiScript ~/WRB/
 cp ~/WRB01/Pi\ Zero/config.py ~/WRB/
+cp ~/WRB01/Pi\ Zero/test_system.py ~/WRB/
+cp ~/WRB01/Pi\ Zero/monitor_system.py ~/WRB/
+cp ~/WRB01/Pi\ Zero/remote_diagnostics.py ~/WRB/
+cp ~/WRB01/Pi\ Zero/diagnose_system.sh ~/WRB/
 chmod +x ~/WRB/PiScript
+chmod +x ~/WRB/diagnose_system.sh
+
+# Copy default sounds
+cp -r ~/WRB01/Pi\ Zero/Default\ Sounds/* ~/WRB/default_sounds/
 ```
 
 ### Step 5: Setup Audio System
@@ -109,40 +118,8 @@ EOF
 
 ### Step 6: Create Service
 ```bash
-# Create systemd service file with improved audio configuration
-sudo tee /etc/systemd/system/WRB-enhanced.service > /dev/null << EOF
-[Unit]
-Description=WRB Enhanced Audio System
-After=network.target sound.target
-Wants=network.target sound.target
-StartLimitInterval=300
-StartLimitBurst=3
-
-[Service]
-Type=simple
-User=$USER
-Group=audio
-WorkingDirectory=$HOME/WRB
-Environment=HOME=$HOME
-Environment=USER=$USER
-Environment=WRB_SERIAL=/dev/ttyACM0
-Environment=SDL_AUDIODRIVER=alsa
-Environment=AUDIODEV=plughw:0,0
-Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
-ExecStartPre=/bin/sleep 15
-ExecStartPre=/bin/bash -c 'pulseaudio --start || true'
-ExecStart=/usr/bin/python3 $HOME/WRB/PiScript
-Restart=on-failure
-RestartSec=15
-RestartPreventExitStatus=1
-StandardOutput=journal
-StandardError=journal
-TimeoutStartSec=60
-TimeoutStopSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
+# Copy service file from repository
+sudo cp ~/WRB01/Pi\ Zero/WRB-enhanced.service /etc/systemd/system/
 
 # Enable and start service
 sudo systemctl daemon-reload
@@ -167,12 +144,12 @@ sudo systemctl start WRB-enhanced.service
 3. Set CPU frequency to 160MHz
 
 ### Step 3: Find MAC Addresses
-1. Upload `MAC_Finder.ino` to your ESP32 devices
+1. Upload `~/WRB01/MAC_Finder.ino` to your ESP32 devices
 2. Open Serial Monitor (115200 baud)
 3. Note the MAC addresses displayed
 
 ### Step 4: Configure Transmitter
-1. Open `Transmitter/Transmitter_ESP32.ino`
+1. Open `~/WRB01/Transmitter/Transmitter_ESP32.ino`
 2. Update the receiver MAC address:
    ```cpp
    uint8_t RX_MAC[] = { 0x58, 0x8C, 0x81, 0x9E, 0x30, 0x10 }; // Your receiver MAC
@@ -180,7 +157,7 @@ sudo systemctl start WRB-enhanced.service
 3. Upload to your transmitter ESP32
 
 ### Step 5: Configure Receiver
-1. Open `Receiver/Receiver_ESP32.ino`
+1. Open `~/WRB01/Receiver/Receiver_ESP32.ino`
 2. Update the allowed transmitter MACs:
    ```cpp
    uint8_t ALLOWED_TX_MACS[][6] = {
@@ -413,8 +390,11 @@ sudo systemctl restart WRB-enhanced.service
 
 ### Manual Updates
 ```bash
-# Re-run installation script
-curl -sSL https://raw.githubusercontent.com/Jallison154/WRB01/main/Pi%20Zero/install.sh | bash
+# Update repository and re-run installation
+cd ~/WRB01
+git pull origin main
+cd Pi\ Zero
+./install.sh
 ```
 
 ## 📞 Support
