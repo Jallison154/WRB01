@@ -142,7 +142,7 @@ install_python_packages() {
     
     # Install Python packages via pip
     pip3 install --user --upgrade pip
-    pip3 install --user pygame pyserial numpy RPi.GPIO
+    pip3 install --user pygame pyserial numpy RPi.GPIO psutil
     
     print_success "Python packages installed successfully"
 }
@@ -197,6 +197,7 @@ copy_files() {
     # Copy main files
     cp "$REPO_DIR/Pi Zero/PiScript" "$WRB_HOME/"
     cp "$REPO_DIR/Pi Zero/config.py" "$WRB_HOME/"
+    cp "$REPO_DIR/Pi Zero/remote_diagnostics.py" "$WRB_HOME/"
     
     # Copy default sounds if they exist
     if [ -d "$REPO_DIR/Pi Zero/default_sounds" ]; then
@@ -206,6 +207,7 @@ copy_files() {
     
     # Make scripts executable
     chmod +x "$WRB_HOME/PiScript"
+    chmod +x "$WRB_HOME/remote_diagnostics.py"
     
     print_success "Files copied successfully"
 }
@@ -373,6 +375,434 @@ start_service() {
 }
 
 # =============================================================================
+# RELIABILITY AND STABILITY FUNCTIONS
+# =============================================================================
+
+setup_watchdog() {
+    print_step "Setting up hardware watchdog..."
+    
+    # Enable hardware watchdog
+    if [ -f "/dev/watchdog" ]; then
+        # Install watchdog package
+        sudo apt install -y watchdog
+        
+        # Configure watchdog
+        cat > /etc/watchdog.conf << EOF
+# Watchdog configuration for WRB system
+watchdog-device = /dev/watchdog
+watchdog-timeout = 60
+max-load-1 = 5
+max-load-5 = 3
+max-load-15 = 2
+min-memory = 1
+admin = root
+interval = 10
+logtick = 1
+temperature-sensor = /sys/class/thermal/thermal_zone0/temp
+max-temperature = 85
+EOF
+        
+        # Enable and start watchdog service
+        sudo systemctl enable watchdog
+        sudo systemctl start watchdog
+        
+        print_success "Hardware watchdog configured"
+    else
+        print_warning "Hardware watchdog not available, using software monitoring"
+    fi
+}
+
+create_health_monitor() {
+    print_step "Creating health monitoring script..."
+    
+    cat > "$WRB_HOME/health_monitor.py" << 'EOF'
+#!/usr/bin/env python3
+"""
+WRB Health Monitor - Comprehensive system health monitoring
+Designed for remote devices with no physical access
+"""
+
+import os
+import sys
+import time
+import json
+import logging
+import subprocess
+import psutil
+import serial
+import pygame
+from datetime import datetime, timedelta
+from pathlib import Path
+
+class WRBHealthMonitor:
+    def __init__(self):
+        self.wrb_home = os.path.expanduser("~/WRB")
+        self.log_file = f"{self.wrb_home}/logs/health_monitor.log"
+        self.status_file = f"{self.wrb_home}/logs/system_status.json"
+        self.alert_file = f"{self.wrb_home}/logs/alerts.log"
+        
+        # Setup logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(self.log_file),
+                logging.StreamHandler()
+            ]
+        )
+        self.logger = logging.getLogger(__name__)
+        
+        # Health thresholds
+        self.cpu_threshold = 80.0
+        self.memory_threshold = 85.0
+        self.disk_threshold = 90.0
+        self.temp_threshold = 80.0
+        
+        # Service monitoring
+        self.service_name = "WRB-enhanced.service"
+        self.max_restart_attempts = 5
+        self.restart_cooldown = 300  # 5 minutes
+        
+    def check_system_resources(self):
+        """Check CPU, memory, disk, and temperature"""
+        health_status = {
+            "cpu_percent": psutil.cpu_percent(interval=1),
+            "memory_percent": psutil.virtual_memory().percent,
+            "disk_percent": psutil.disk_usage('/').percent,
+            "temperature": self.get_cpu_temperature(),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        issues = []
+        
+        # Check CPU usage
+        if health_status["cpu_percent"] > self.cpu_threshold:
+            issues.append(f"High CPU usage: {health_status['cpu_percent']:.1f}%")
+            
+        # Check memory usage
+        if health_status["memory_percent"] > self.memory_threshold:
+            issues.append(f"High memory usage: {health_status['memory_percent']:.1f}%")
+            
+        # Check disk usage
+        if health_status["disk_percent"] > self.disk_threshold:
+            issues.append(f"High disk usage: {health_status['disk_percent']:.1f}%")
+            
+        # Check temperature
+        if health_status["temperature"] > self.temp_threshold:
+            issues.append(f"High temperature: {health_status['temperature']:.1f}°C")
+            
+        health_status["issues"] = issues
+        health_status["healthy"] = len(issues) == 0
+        
+        return health_status
+        
+    def get_cpu_temperature(self):
+        """Get CPU temperature"""
+        try:
+            with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+                temp = int(f.read().strip()) / 1000.0
+                return temp
+        except:
+            return 0.0
+            
+    def check_service_status(self):
+        """Check if WRB service is running"""
+        try:
+            result = subprocess.run(
+                ['systemctl', 'is-active', self.service_name],
+                capture_output=True, text=True, timeout=10
+            )
+            return result.stdout.strip() == 'active'
+        except:
+            return False
+            
+    def check_serial_connection(self):
+        """Check ESP32 serial connection"""
+        try:
+            # Try to open serial connection
+            ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+            ser.close()
+            return True
+        except:
+            return False
+            
+    def check_audio_system(self):
+        """Check audio system functionality"""
+        try:
+            pygame.mixer.init()
+            pygame.mixer.quit()
+            return True
+        except:
+            return False
+            
+    def restart_service(self):
+        """Restart the WRB service"""
+        try:
+            self.logger.warning("Restarting WRB service...")
+            subprocess.run(['sudo', 'systemctl', 'restart', self.service_name], 
+                         timeout=30, check=True)
+            time.sleep(10)  # Wait for service to start
+            return self.check_service_status()
+        except Exception as e:
+            self.logger.error(f"Failed to restart service: {e}")
+            return False
+            
+    def cleanup_logs(self):
+        """Clean up old log files to prevent disk space issues"""
+        try:
+            log_dir = Path(f"{self.wrb_home}/logs")
+            cutoff_date = datetime.now() - timedelta(days=7)
+            
+            for log_file in log_dir.glob("*.log"):
+                if log_file.stat().st_mtime < cutoff_date.timestamp():
+                    log_file.unlink()
+                    self.logger.info(f"Removed old log file: {log_file}")
+                    
+        except Exception as e:
+            self.logger.error(f"Log cleanup failed: {e}")
+            
+    def save_status(self, status):
+        """Save system status to JSON file"""
+        try:
+            with open(self.status_file, 'w') as f:
+                json.dump(status, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Failed to save status: {e}")
+            
+    def send_alert(self, message):
+        """Send alert (log for now, could be extended to email/webhook)"""
+        try:
+            with open(self.alert_file, 'a') as f:
+                f.write(f"{datetime.now().isoformat()} - ALERT: {message}\n")
+            self.logger.warning(f"ALERT: {message}")
+        except Exception as e:
+            self.logger.error(f"Failed to send alert: {e}")
+            
+    def run_health_check(self):
+        """Run comprehensive health check"""
+        self.logger.info("Starting health check...")
+        
+        # System resources
+        system_health = self.check_system_resources()
+        
+        # Service status
+        service_running = self.check_service_status()
+        
+        # Hardware checks
+        serial_ok = self.check_serial_connection()
+        audio_ok = self.check_audio_system()
+        
+        # Compile overall status
+        status = {
+            "timestamp": datetime.now().isoformat(),
+            "system_health": system_health,
+            "service_running": service_running,
+            "serial_connection": serial_ok,
+            "audio_system": audio_ok,
+            "overall_healthy": system_health["healthy"] and service_running and serial_ok and audio_ok
+        }
+        
+        # Handle issues
+        if not status["overall_healthy"]:
+            issues = []
+            if not system_health["healthy"]:
+                issues.extend(system_health["issues"])
+            if not service_running:
+                issues.append("WRB service not running")
+            if not serial_ok:
+                issues.append("ESP32 serial connection failed")
+            if not audio_ok:
+                issues.append("Audio system not working")
+                
+            self.send_alert(f"System health issues detected: {', '.join(issues)}")
+            
+            # Attempt service restart if service is down
+            if not service_running:
+                self.restart_service()
+                
+        # Save status
+        self.save_status(status)
+        
+        # Cleanup old logs
+        self.cleanup_logs()
+        
+        self.logger.info("Health check completed")
+        return status
+
+def main():
+    monitor = WRBHealthMonitor()
+    while True:
+        try:
+            monitor.run_health_check()
+            time.sleep(60)  # Check every minute
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            monitor.logger.error(f"Health monitor error: {e}")
+            time.sleep(60)
+
+if __name__ == "__main__":
+    main()
+EOF
+    
+    chmod +x "$WRB_HOME/health_monitor.py"
+    print_success "Health monitoring script created"
+}
+
+create_watchdog_service() {
+    print_step "Creating watchdog service..."
+    
+    cat > "/etc/systemd/system/wrb-watchdog.service" << EOF
+[Unit]
+Description=WRB System Watchdog
+After=network.target WRB-enhanced.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=$USER
+Group=audio
+WorkingDirectory=$WRB_HOME
+Environment=HOME=$HOME
+Environment=USER=$USER
+ExecStart=/usr/bin/python3 $WRB_HOME/health_monitor.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Enable watchdog service
+    sudo systemctl daemon-reload
+    sudo systemctl enable wrb-watchdog.service
+    
+    print_success "Watchdog service created and enabled"
+}
+
+setup_log_rotation() {
+    print_step "Setting up log rotation..."
+    
+    cat > "/etc/logrotate.d/wrb" << EOF
+$WRB_HOME/logs/*.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 644 $USER $USER
+    postrotate
+        systemctl reload WRB-enhanced.service > /dev/null 2>&1 || true
+    endscript
+}
+EOF
+    
+    print_success "Log rotation configured"
+}
+
+setup_network_monitoring() {
+    print_step "Setting up network monitoring..."
+    
+    cat > "$WRB_HOME/network_monitor.py" << 'EOF'
+#!/usr/bin/env python3
+"""
+Network connectivity monitor for WRB system
+"""
+
+import time
+import subprocess
+import logging
+from datetime import datetime
+
+class NetworkMonitor:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.test_hosts = ['8.8.8.8', '1.1.1.1', 'google.com']
+        self.max_failures = 3
+        self.failure_count = 0
+        
+    def test_connectivity(self):
+        """Test network connectivity"""
+        for host in self.test_hosts:
+            try:
+                result = subprocess.run(
+                    ['ping', '-c', '1', '-W', '5', host],
+                    capture_output=True, timeout=10
+                )
+                if result.returncode == 0:
+                    return True
+            except:
+                continue
+        return False
+        
+    def restart_networking(self):
+        """Restart networking services"""
+        try:
+            self.logger.warning("Restarting networking services...")
+            subprocess.run(['sudo', 'systemctl', 'restart', 'networking'], 
+                         timeout=60, check=True)
+            subprocess.run(['sudo', 'systemctl', 'restart', 'dhcpcd'], 
+                         timeout=60, check=True)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to restart networking: {e}")
+            return False
+            
+    def monitor(self):
+        """Main monitoring loop"""
+        while True:
+            if self.test_connectivity():
+                if self.failure_count > 0:
+                    self.logger.info("Network connectivity restored")
+                    self.failure_count = 0
+            else:
+                self.failure_count += 1
+                self.logger.warning(f"Network connectivity lost (failure {self.failure_count})")
+                
+                if self.failure_count >= self.max_failures:
+                    self.restart_networking()
+                    self.failure_count = 0
+                    
+            time.sleep(30)  # Check every 30 seconds
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    monitor = NetworkMonitor()
+    monitor.monitor()
+EOF
+    
+    chmod +x "$WRB_HOME/network_monitor.py"
+    
+    # Create network monitor service
+    cat > "/etc/systemd/system/wrb-network-monitor.service" << EOF
+[Unit]
+Description=WRB Network Monitor
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=$USER
+ExecStart=/usr/bin/python3 $WRB_HOME/network_monitor.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    sudo systemctl daemon-reload
+    sudo systemctl enable wrb-network-monitor.service
+    
+    print_success "Network monitoring configured"
+}
+
+# =============================================================================
 # VERIFICATION FUNCTIONS
 # =============================================================================
 
@@ -392,6 +822,11 @@ verify_installation() {
         ((errors++))
     fi
     
+    if [ ! -f "$WRB_HOME/remote_diagnostics.py" ]; then
+        print_error "Remote diagnostics script not found"
+        ((errors++))
+    fi
+    
     if [ ! -d "$WRB_DEFAULT_SOUNDS" ]; then
         print_error "Default sounds directory not found"
         ((errors++))
@@ -406,6 +841,17 @@ verify_installation() {
     # Check service status
     if ! systemctl is-enabled --quiet "$SERVICE_NAME"; then
         print_error "Service not enabled"
+        ((errors++))
+    fi
+    
+    # Check reliability systems
+    if [ ! -f "$WRB_HOME/health_monitor.py" ]; then
+        print_error "Health monitor not found"
+        ((errors++))
+    fi
+    
+    if [ ! -f "/etc/systemd/system/wrb-watchdog.service" ]; then
+        print_error "Watchdog service not found"
         ((errors++))
     fi
     
@@ -465,9 +911,22 @@ main_installation() {
     # Permission setup
     setup_permissions
     
+    # Reliability and stability setup
+    setup_watchdog
+    create_health_monitor
+    create_watchdog_service
+    setup_log_rotation
+    setup_network_monitoring
+    
     # Service setup
     create_service_file
     enable_service
+    
+    # Start reliability services
+    print_step "Starting reliability services..."
+    sudo systemctl start wrb-watchdog.service
+    sudo systemctl start wrb-network-monitor.service
+    print_success "Reliability services started"
     
     # Cleanup
     cleanup_installation
@@ -480,6 +939,19 @@ main_installation() {
         print_info "To start the service now, run: sudo systemctl start $SERVICE_NAME"
         print_info "To check service status, run: sudo systemctl status $SERVICE_NAME"
         print_info "To view logs, run: sudo journalctl -u $SERVICE_NAME -f"
+        echo
+        print_info "=== RELIABILITY FEATURES ENABLED ==="
+        print_info "✓ Hardware watchdog monitoring"
+        print_info "✓ Health monitoring (CPU, memory, disk, temperature)"
+        print_info "✓ Automatic service restart on failure"
+        print_info "✓ Network connectivity monitoring"
+        print_info "✓ Log rotation to prevent disk space issues"
+        print_info "✓ ESP32 serial connection monitoring"
+        print_info "✓ Audio system health checks"
+        echo
+        print_info "System status available at: $WRB_HOME/logs/system_status.json"
+        print_info "Health monitor logs: $WRB_HOME/logs/health_monitor.log"
+        print_info "Alert logs: $WRB_HOME/logs/alerts.log"
         echo
         print_info "For troubleshooting, see the documentation in $WRB_HOME"
     else
