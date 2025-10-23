@@ -41,6 +41,10 @@ active_sounds = {}  # Track active sounds for fade-out
 READY_PIN = 23
 USB_LED_PIN = 24
 
+# LED control
+ready_pwm = None
+usb_pwm = None
+
 # System state
 running = True
 usb_drive_mounted = False
@@ -84,10 +88,20 @@ def setup_gpio():
         GPIO.setup(READY_PIN, GPIO.OUT)
         GPIO.setup(USB_LED_PIN, GPIO.OUT)
         
-        # Turn on ready LED
-        GPIO.output(READY_PIN, GPIO.HIGH)
+        # Initialize PWM for LEDs
+        global ready_pwm, usb_pwm
+        ready_pwm = GPIO.PWM(READY_PIN, 1000)  # 1kHz frequency
+        usb_pwm = GPIO.PWM(USB_LED_PIN, 1000)
+        
+        # Start PWM
+        ready_pwm.start(0)  # Start at 0% duty cycle
+        usb_pwm.start(0)
+        
+        # Set ready LED to 25% brightness
+        set_ready_led_brightness(25)
+        
         logger.info("GPIO initialized successfully")
-        logger.info(f"Ready LED (GPIO {READY_PIN}) should be ON")
+        logger.info(f"Ready LED (GPIO {READY_PIN}) set to 25% brightness")
         logger.info(f"USB LED (GPIO {USB_LED_PIN}) is OFF (no USB drive)")
         return True
     except Exception as e:
@@ -96,9 +110,42 @@ def setup_gpio():
         logger.error("Try running with: sudo python3 PiScript")
         return False
 
+def set_ready_led_brightness(brightness):
+    """Set ready LED brightness (0-100%)"""
+    try:
+        if ready_pwm:
+            ready_pwm.ChangeDutyCycle(brightness)
+    except Exception as e:
+        logger.error(f"Failed to set ready LED brightness: {e}")
+
+def set_usb_led_brightness(brightness):
+    """Set USB LED brightness (0-100%)"""
+    try:
+        if usb_pwm:
+            usb_pwm.ChangeDutyCycle(brightness)
+    except Exception as e:
+        logger.error(f"Failed to set USB LED brightness: {e}")
+
+def flash_ready_led():
+    """Flash ready LED at 100% for 200ms when audio is triggered"""
+    try:
+        if ready_pwm:
+            # Flash to 100% brightness
+            ready_pwm.ChangeDutyCycle(100)
+            time.sleep(0.2)  # 200ms flash
+            # Return to 25% brightness
+            ready_pwm.ChangeDutyCycle(25)
+    except Exception as e:
+        logger.error(f"Failed to flash ready LED: {e}")
+
 def cleanup_gpio():
     """Clean up GPIO pins"""
     try:
+        # Stop PWM before cleanup
+        if ready_pwm:
+            ready_pwm.stop()
+        if usb_pwm:
+            usb_pwm.stop()
         GPIO.cleanup()
         logger.info("GPIO cleaned up")
     except Exception as e:
@@ -362,6 +409,9 @@ def play_sound(sound_type):
         selected_channel.play(sound)
         selected_channel.set_volume(1.0)  # Ensure full volume
         
+        # Flash ready LED when audio is triggered
+        flash_ready_led()
+        
         # Track the active sound
         active_sounds[sound_type] = selected_channel
         
@@ -425,10 +475,10 @@ def test_usb_detection():
     # Test GPIO LED
     try:
         logger.info("Testing USB LED (GPIO 24)...")
-        GPIO.output(USB_LED_PIN, GPIO.HIGH)
+        set_usb_led_brightness(100)
         logger.info("USB LED should be ON")
         time.sleep(2)
-        GPIO.output(USB_LED_PIN, GPIO.LOW)
+        set_usb_led_brightness(0)
         logger.info("USB LED should be OFF")
     except Exception as e:
         logger.error(f"LED test failed: {e}")
@@ -459,7 +509,7 @@ def update_usb_status():
             usb_drive_mounted = new_status
             
             # Update LED immediately
-            GPIO.output(USB_LED_PIN, GPIO.HIGH if usb_drive_mounted else GPIO.LOW)
+            set_usb_led_brightness(100 if usb_drive_mounted else 0)
             
             if usb_drive_mounted:
                 logger.info("USB drive detected, reloading sounds")
@@ -474,7 +524,7 @@ def update_usb_status():
         logger.error(f"Error updating USB status: {e}")
         # Ensure LED is off on error
         try:
-            GPIO.output(USB_LED_PIN, GPIO.LOW)
+            set_usb_led_brightness(0)
         except:
             pass
 
