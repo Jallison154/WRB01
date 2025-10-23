@@ -1,7 +1,7 @@
 [Unit]
 Description=WRB Enhanced Audio System
-After=network.target sound.target
-Wants=network.target sound.target
+After=network.target
+Wants=network.target
 StartLimitInterval=300
 StartLimitBurst=3
 
@@ -9,23 +9,22 @@ StartLimitBurst=3
 Type=simple
 User=pi
 Group=audio
-WorkingDirectory=/home/pi/WRB
+WorkingDirectory=/home/pi/WRB01/Pi Zero
 Environment=HOME=/home/pi
 Environment=USER=pi
 Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=alsa
 Environment=AUDIODEV=plughw:0,0
 Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
-ExecStartPre=/bin/sleep 15
-ExecStartPre=/bin/bash -c 'pulseaudio --start || true'
-ExecStart=/usr/bin/python3 /home/pi/WRB/PiScript
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/bin/python3 /home/pi/WRB01/Pi\ Zero/PiScript
 Restart=on-failure
-RestartSec=15
+RestartSec=5
 RestartPreventExitStatus=1
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=60
-TimeoutStopSec=10
+TimeoutStartSec=30
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target

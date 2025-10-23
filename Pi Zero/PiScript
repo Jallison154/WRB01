@@ -61,7 +61,7 @@ monitor_thread = None
 
 def setup_logging():
     """Setup logging configuration"""
-    log_dir = Path.home() / "WRB" / "logs"
+    log_dir = Path.cwd() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     
     logging.basicConfig(
@@ -274,7 +274,7 @@ def find_sound_files():
             load_sounds_from_path(usb_path, "USB")
     
     # Check local sounds directory
-    local_sounds_dir = Path.home() / "WRB" / "sounds"
+    local_sounds_dir = Path.cwd() / "sounds"
     if local_sounds_dir.exists():
         load_sounds_from_path(local_sounds_dir, "Local")
     
@@ -748,13 +748,7 @@ def main():
         cleanup_gpio()
         return 1
     
-    # Test USB detection and LED functionality
-    test_usb_detection()
-    
-    # Load sound files
-    find_sound_files()
-    
-    # Start monitoring threads
+    # Start monitoring threads immediately
     global serial_thread, monitor_thread
     serial_thread = threading.Thread(target=serial_monitor, daemon=True)
     monitor_thread = threading.Thread(target=system_monitor, daemon=True)
@@ -763,6 +757,12 @@ def main():
     monitor_thread.start()
     
     logger.info("WRB system ready and running")
+    
+    # Load sound files in background (non-blocking)
+    threading.Thread(target=find_sound_files, daemon=True).start()
+    
+    # Test USB detection in background (non-blocking)
+    threading.Thread(target=test_usb_detection, daemon=True).start()
     
     try:
         # Main loop
