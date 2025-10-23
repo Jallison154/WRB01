@@ -241,7 +241,8 @@ EOF
     fi
     
     # Create PulseAudio configuration
-    cat > "$HOME/.config/pulse/default.pa" << EOF
+    if [ ! -f "$HOME/.config/pulse/default.pa" ]; then
+        cat > "$HOME/.config/pulse/default.pa" << EOF
 #!/usr/bin/pulseaudio -nF
 load-module module-device-restore
 load-module module-stream-restore
