@@ -1,412 +1,335 @@
-/*
- * WRB ESP32 Transmitter
- * Seeed Studio XIAO ESP32C3 Wireless Button System
- * 
- * Features:
- * - Release-based triggering (no double triggers)
- * - Hold detection (800ms threshold)
- * - LED status indicators
- * - Power management (light/deep sleep)
- * - Retry mechanism for failed transmissions
- * - MAC address security
- * - Comprehensive logging
- */
-
-#include <esp_now.h>
 #include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
 #include <esp_sleep.h>
+#include "driver/gpio.h"   // <-- needed for gpio_wakeup_enable()
 
-// =============================================================================
-// CONFIGURATION SECTION
-// =============================================================================
+// ---------- Pins (use Dx aliases) ----------
+#define LED_PIN  D10               // status LED on header D10
+const bool LED_ACTIVE_LOW = false; // set true if LED looks inverted
 
-// MAC Address Configuration (Receiver MAC)
-uint8_t RX_MAC[] = { 0x58, 0x8C, 0x81, 0x9E, 0x30, 0x10 };
+#define BTN1_PIN D1                // button 1 on header D1 -> GND
+#define BTN2_PIN D2                // button 2 on header D2 -> GND
+const bool USE_BTN2 = true;
+const bool BTN_ACTIVE_LOW = true;  // true = button to GND with INPUT_PULLUP
 
-// Pin Configuration
-#define LED_PIN D10
-#define BTN1_PIN D1
-#define BTN2_PIN D2
+// ---------- Peer (Receiver) MAC ----------
+uint8_t RX_MAC[] = { 0x58,0x8C,0x81,0x9E,0x30,0x10 }; // <-- your RX MAC (58:8c:81:9e:30:10)
 
-// Timing Configuration
-const uint32_t HOLD_DELAY_MS = 800;           // Hold threshold
-const uint32_t IDLE_LIGHT_MS = 5 * 60 * 1000; // Light sleep delay (5 minutes)
-const uint32_t IDLE_DEEP_MS = 15 * 60 * 1000; // Deep sleep delay (15 minutes)
-const uint8_t MAX_RETRIES = 3;                 // Retry count
-const uint32_t RETRY_DELAY_MS = 50;           // Retry interval
-const uint32_t DEBOUNCE_TIME_MS = 50;         // Button debounce
-const uint32_t LED_BLINK_MS = 100;            // LED blink duration
+// ---------- Messages ----------
+enum : uint8_t { MSG_PING=0xA0, MSG_ACK=0xA1, MSG_BTN=0xB0, MSG_BTN_HOLD=0xB1 };
 
-// Message Types
-#define MSG_PING 0xA0
-#define MSG_ACK 0xA1
-#define MSG_BTN 0xB0
-#define MSG_BTN_HOLD 0xB1
+// ---------- Link / timing ----------
+uint32_t lastAckMs = 0;
+bool linked = false;
 
-// =============================================================================
-// GLOBAL VARIABLES
-// =============================================================================
+// ---------- Power policy ----------
+const bool     ENABLE_SLEEP     = true;
+// go to LIGHT sleep at 5 min idle, DEEP sleep at 15 min idle
+const uint32_t IDLE_LIGHT_MS    = 5UL  * 60UL * 1000UL;  // 5 minutes
+const uint32_t IDLE_DEEP_MS     = 15UL * 60UL * 1000UL;  // 15 minutes
+uint32_t lastActivityMs         = 0;
 
-struct Message {
-  uint8_t msgType;
-  uint8_t button;
-  uint8_t retryCount;
-  uint32_t timestamp;
-} message;
+// Light-sleep LED parameters
+const uint32_t SLEEP_BLINK_PERIOD_MS = 4000;  // 4s between blinks
+const uint8_t  SLEEP_BLINK_BRIGHTNESS = 26;   // ~10% of 255 (26/255 ≈ 0.1)
 
-// Button state tracking
-struct ButtonState {
+// Transmission retry parameters
+const uint8_t  MAX_RETRIES      = 3;
+const uint16_t RETRY_DELAY_MS   = 50;
+
+// Wake cause (for logging only; we do NOT send on deep wake anymore)
+esp_sleep_wakeup_cause_t wakeCause = ESP_SLEEP_WAKEUP_UNDEFINED;
+
+// ---------- Button state tracking ----------
+struct BtnState {
+  uint8_t pin;
+  bool activeLow;
+  int lastLevel;
+  uint32_t lastFlip;
   bool pressed;
-  bool holdDetected;
-  uint32_t pressTime;
-  uint32_t lastDebounce;
-  bool processed;
-} btn1, btn2;
-
-// System state
-bool espnowReady = false;
-uint32_t lastActivity = 0;
-uint32_t lastPing = 0;
-uint32_t lastLEDUpdate = 0;
-bool ledState = false;
-uint8_t retryCount = 0;
-
-// LED behavior states
-enum LEDState {
-  LED_BREATHING,    // No connection to receiver
-  LED_CONNECTED,    // Connected to receiver (25% brightness)
-  LED_BUTTON_PRESS, // Button press (100% brightness)
-  LED_BUTTON_HOLD,  // Button hold (double blink at 100%)
-  LED_LIGHT_SLEEP,  // Light sleep (double blink at 10%)
-  LED_DEEP_SLEEP    // Deep sleep (off)
+  uint32_t pressStartMs;
+  bool armed;
 };
+const uint16_t DEBOUNCE_MS = 40;
+const uint16_t HOLD_THRESHOLD_MS = 800; // Hold if pressed for more than 800ms
+BtnState b1{BTN1_PIN, BTN_ACTIVE_LOW, HIGH, 0, false, 0, true};
+BtnState b2{BTN2_PIN, BTN_ACTIVE_LOW, HIGH, 0, false, 0, true};
 
-LEDState currentLEDState = LED_BREATHING;
-uint32_t ledStateStartTime = 0;
-uint32_t breathingPhase = 0;
-bool receiverConnected = false;
-
-// =============================================================================
-// UTILITY FUNCTIONS
-// =============================================================================
-
-void printMacAddress(uint8_t* mac) {
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  Serial.print(macStr);
-}
-
-void printMessage(const char* prefix, uint8_t type, uint8_t button = 0) {
-  Serial.print(prefix);
-  Serial.print(" Type: 0x");
-  Serial.print(type, HEX);
-  if (button > 0) {
-    Serial.print(" Button: ");
-    Serial.print(button);
-  }
-  Serial.println();
-}
-
-void updateLED() {
+bool updateButtonState(BtnState& b){
+  int lvl = digitalRead(b.pin);
   uint32_t now = millis();
+  bool active = b.activeLow ? (lvl==LOW) : (lvl==HIGH);
   
-  // Check if any button is currently pressed
-  bool anyButtonPressed = !digitalRead(BTN1_PIN) || !digitalRead(BTN2_PIN);
-  
-  if (anyButtonPressed) {
-    // Button is pressed - 100% brightness
-    analogWrite(LED_PIN, 255);
-    Serial.println("LED: Button pressed - 100% brightness");
-    return;
+  // Detect state changes
+  if (lvl != b.lastLevel) {
+    b.lastLevel = lvl;
+    b.lastFlip = now;
+    return false; // Wait for debounce
   }
   
-  // No button pressed - check connection state
-  if (receiverConnected) {
-    // Connected - 25% brightness
-    analogWrite(LED_PIN, 64);
-    Serial.println("LED: Connected - 25% brightness");
-  } else {
-    // Not connected - breathing effect (3 second cycle)
-    breathingPhase = (now / 15) % 200; // 3 second cycle (200 * 15ms)
-    if (breathingPhase < 100) {
-      // Fade in (0-25% of 255 = 0-64)
-      analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
-    } else {
-      // Fade out (0-25% of 255 = 0-64)
-      analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
-    }
-    Serial.println("LED: Not connected - breathing");
-  }
-}
-
-void setLEDState(LEDState newState) {
-  currentLEDState = newState;
-  ledStateStartTime = millis();
-  Serial.print("setLEDState called: ");
-  Serial.println(newState);
-}
-
-void setLED(bool state) {
-  digitalWrite(LED_PIN, state ? HIGH : LOW);
-  ledState = state;
-}
-
-// =============================================================================
-// ESP-NOW FUNCTIONS
-// =============================================================================
-
-void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
-  printMessage("Send Status: ", status == ESP_NOW_SEND_SUCCESS ? MSG_ACK : MSG_PING);
-  
-  if (status == ESP_NOW_SEND_SUCCESS) {
-    Serial.println("Message sent successfully");
-    retryCount = 0;
-    lastActivity = millis();
-    receiverConnected = true;
-    // Don't change LED state here - let button handlers manage it
-  } else {
-    Serial.println("Message send failed");
-    receiverConnected = false;
-    if (retryCount < MAX_RETRIES) {
-      retryCount++;
-      delay(RETRY_DELAY_MS);
-      // Resend the message
-      esp_now_send(RX_MAC, (uint8_t*)&message, sizeof(message));
-    } else {
-      Serial.println("Max retries reached, giving up");
-      retryCount = 0;
-    }
-  }
-}
-
-void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
-  if (len == sizeof(message)) {
-    memcpy(&message, incomingData, sizeof(message));
-    
-    Serial.print("Received from: ");
-    printMacAddress((uint8_t*)recv_info->src_addr);
-    printMessage("", message.msgType, message.button);
-    
-    if (message.msgType == MSG_ACK) {
-      Serial.println("Received ACK");
-      lastActivity = millis();
-      receiverConnected = true;
-      // Don't change LED state here - let main loop manage it
-    }
-  }
-}
-
-bool sendMessage(uint8_t msgType, uint8_t button = 0) {
-  message.msgType = msgType;
-  message.button = button;
-  message.retryCount = retryCount;
-  message.timestamp = millis();
-  
-  printMessage("Sending: ", msgType, button);
-  
-  esp_err_t result = esp_now_send(RX_MAC, (uint8_t*)&message, sizeof(message));
-  
-  if (result != ESP_OK) {
-    Serial.print("ESP-NOW send failed: ");
-    Serial.println(result);
+  // Debounce check
+  if ((now - b.lastFlip) < DEBOUNCE_MS) {
     return false;
   }
   
-  return true;
+  // Handle press start
+  if (active && !b.pressed && b.armed) {
+    b.pressed = true;
+    b.pressStartMs = now;
+    b.armed = false;
+    return false; // Don't trigger yet - wait for release
+  }
+  
+  // Handle release
+  if (!active && b.pressed) {
+    b.pressed = false;
+    b.armed = true;
+    return true; // Button was released - caller should check duration
+  }
+  
+  return false;
 }
 
-// =============================================================================
-// BUTTON HANDLING FUNCTIONS
-// =============================================================================
+bool isBtnActive(uint8_t pin){
+  int lvl = digitalRead(pin);
+  return BTN_ACTIVE_LOW ? (lvl == LOW) : (lvl == HIGH);
+}
 
-void updateButton(ButtonState& btn, uint8_t buttonNum, uint8_t pin) {
+// ---------- LED helpers ----------
+inline void ledWriteRaw(uint8_t v){ if(LED_ACTIVE_LOW) v = 255 - v; analogWrite(LED_PIN, v); }
+inline void ledOn(){     ledWriteRaw(255); } // 100% when a button is held
+inline void ledLinked(){ ledWriteRaw(64);  } // ~25% when linked
+inline void ledOff(){    ledWriteRaw(0);   } // off
+
+void showNoLinkBreathing(uint32_t now){
+  // Create a smooth breathing animation between 0% and 25% brightness
+  // Using a sine wave with 3 second period (3000ms)
+  float phase = (now % 3000) / 3000.0f * 2.0f * PI;
+  float sine = sin(phase);
+  
+  // Map sine wave (-1 to 1) to brightness range (0% to 25%)
+  // sine goes from -1 to 1, we want 0.0 to 0.25
+  // (sine + 1) / 2 goes from 0 to 1
+  // Then scale to 0.0 to 0.25: 0.0 + (0.25 - 0.0) * value
+  float brightness = 0.25f * ((sine + 1.0f) / 2.0f);
+  
+  // Convert to 0-255 range and write to LED
+  uint8_t ledValue = (uint8_t)(brightness * 255);
+  ledWriteRaw(ledValue);
+}
+
+void showNoLinkDoubleBlink(uint32_t now){
+  uint32_t t = now % 2000;
+  if (t < 120) { ledOn();  return; }
+  if (t < 240) { ledOff(); return; }
+  if (t < 360) { ledOn();  return; }
+  ledOff();
+}
+
+void ledTask(){
   uint32_t now = millis();
-  bool currentState = !digitalRead(pin); // Inverted because buttons pull to GND
-  
-  // Debounce logic
-  if (currentState != btn.pressed) {
-    btn.lastDebounce = now;
-  }
-  
-  if ((now - btn.lastDebounce) > DEBOUNCE_TIME_MS) {
-    if (currentState && !btn.pressed) {
-      // Button pressed
-      btn.pressed = true;
-      btn.pressTime = now;
-      btn.holdDetected = false;
-      btn.processed = false;
-      Serial.print("Button ");
-      Serial.print(buttonNum);
-      Serial.println(" pressed");
-    } else if (!currentState && btn.pressed) {
-      // Button released
-      btn.pressed = false;
-      uint32_t pressDuration = now - btn.pressTime;
-      
-      Serial.print("Button ");
-      Serial.print(buttonNum);
-      Serial.print(" released after ");
-      Serial.print(pressDuration);
-      Serial.println(" ms");
-      
-      if (!btn.holdDetected && !btn.processed) {
-        // Send regular button press
-        sendMessage(MSG_BTN, buttonNum);
-        btn.processed = true;
-        // LED will be handled by updateLED() based on button state
-        Serial.print("Button ");
-        Serial.print(buttonNum);
-        Serial.println(" press detected");
-      }
-    }
-    
-    // Check for hold detection
-    if (btn.pressed && !btn.holdDetected && !btn.processed) {
-      if ((now - btn.pressTime) >= HOLD_DELAY_MS) {
-        btn.holdDetected = true;
-        btn.processed = true;
-        Serial.print("Button ");
-        Serial.print(buttonNum);
-        Serial.println(" hold detected");
-        sendMessage(MSG_BTN_HOLD, buttonNum);
-        // Set LED to button hold state
-        setLEDState(LED_BUTTON_HOLD);
-      }
-    }
+  bool anyLocalHeld = isBtnActive(BTN1_PIN) || (USE_BTN2 && isBtnActive(BTN2_PIN));
+  if (anyLocalHeld) {
+    ledOn();               // 100% while a button is held
+  } else if (linked) {
+    ledLinked();           // 25% when linked
+  } else {
+    showNoLinkBreathing(now);  // Breathing animation when no connection
   }
 }
 
-// =============================================================================
-// POWER MANAGEMENT FUNCTIONS
-// =============================================================================
-
-void enterLightSleep() {
-  Serial.println("Entering light sleep...");
-  setLEDState(LED_LIGHT_SLEEP);
+// ---------- ESP-NOW handlers ----------
+void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len){
+  if (!data || len <= 0) return;
   
-  // Configure wake-up sources for ESP32C3
-  esp_deep_sleep_enable_gpio_wakeup((1ULL << BTN1_PIN) | (1ULL << BTN2_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
+  // Only accept messages from the authorized receiver
+  if (memcmp(info->src_addr, RX_MAC, 6) != 0) {
+    Serial.printf("Rejected message from unauthorized MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 info->src_addr[0], info->src_addr[1], info->src_addr[2],
+                 info->src_addr[3], info->src_addr[4], info->src_addr[5]);
+    return;
+  }
   
-  // Enter light sleep
-  esp_light_sleep_start();
-  
-  Serial.println("Woke up from light sleep");
-  lastActivity = millis();
+  if (data[0] == MSG_ACK){
+    lastAckMs = millis();  // link health only (DO NOT touch lastActivityMs)
+  }
 }
 
-void enterDeepSleep() {
-  Serial.println("Entering deep sleep...");
-  setLEDState(LED_DEEP_SLEEP);
+void addPeer(const uint8_t mac[6], uint8_t channel=1){
+  esp_now_peer_info_t p{};
+  memcpy(p.peer_addr, mac, 6);
+  p.channel = channel; p.encrypt = false; p.ifidx = WIFI_IF_STA;
+  esp_now_del_peer(mac);
+  esp_now_add_peer(&p);
+}
+
+void sendPing(){
+  uint8_t m = MSG_PING;
+  esp_err_t result = esp_now_send(RX_MAC, &m, 1);
+  if (result != ESP_OK) {
+    Serial.printf("TX: Ping failed to send (error: %d)\n", result);
+  }
+}
+
+void sendBtn(uint8_t id, bool isHold = false){
+  uint8_t msgType = isHold ? MSG_BTN_HOLD : MSG_BTN;
+  uint8_t m[2] = { msgType, id };
   
-  // Configure wake-up sources for ESP32C3
-  esp_deep_sleep_enable_gpio_wakeup((1ULL << BTN1_PIN) | (1ULL << BTN2_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
-  
-  // Enter deep sleep
+  // Retry mechanism for better reliability
+  for (uint8_t retry = 0; retry < MAX_RETRIES; retry++) {
+    esp_err_t result = esp_now_send(RX_MAC, m, sizeof(m));
+    if (result == ESP_OK) {
+      if (isHold) {
+        Serial.printf("TX: BTN%u HOLD (local) - sent successfully\n", id);
+      } else {
+        Serial.printf("TX: BTN%u pressed (local) - sent successfully\n", id);
+      }
+      lastActivityMs = millis(); // reset idle timer on local activity
+      return;
+    }
+    Serial.printf("TX: BTN%u %s send attempt %d failed (error: %d)\n", 
+                  id, isHold ? "HOLD" : "press", retry + 1, result);
+    if (retry < MAX_RETRIES - 1) {
+      delay(RETRY_DELAY_MS);
+    }
+  }
+  Serial.printf("TX: BTN%u %s failed to send after %d retries\n", 
+                id, isHold ? "HOLD" : "press", MAX_RETRIES);
+}
+
+// ---------- Sleep helpers ----------
+// Light sleep: enable GPIO wake on LOW using the new API pattern (IDF v5).
+void enableGpioWakeLow_Light(){
+  gpio_wakeup_enable((gpio_num_t)BTN1_PIN, GPIO_INTR_LOW_LEVEL);
+  if (USE_BTN2) gpio_wakeup_enable((gpio_num_t)BTN2_PIN, GPIO_INTR_LOW_LEVEL);
+  esp_sleep_enable_gpio_wakeup(); // no args in IDF v5
+}
+
+// Deep sleep: keep using mask+level helper (still valid).
+uint64_t gpioWakeMask(){
+  uint64_t mask = (1ULL << BTN1_PIN);
+  if (USE_BTN2) mask |= (1ULL << BTN2_PIN);
+  return mask;
+}
+void enableGpioWakeLow_Deep(){
+  esp_deep_sleep_disable_rom_logging(); // optional: quieter boot logs
+  esp_deep_sleep_enable_gpio_wakeup(gpioWakeMask(), ESP_GPIO_WAKEUP_GPIO_LOW);
+}
+
+void goToDeepSleep(){
+  Serial.println("Entering DEEP sleep… (wake on D1/D2 LOW)");
+  ledOff();
+  pinMode(BTN1_PIN, INPUT_PULLUP);
+  if (USE_BTN2) pinMode(BTN2_PIN, INPUT_PULLUP);
+  enableGpioWakeLow_Deep();
   esp_deep_sleep_start();
 }
 
-void checkPowerManagement() {
-  uint32_t now = millis();
-  uint32_t idleTime = now - lastActivity;
-  
-  if (idleTime >= IDLE_DEEP_MS) {
-    enterDeepSleep();
-  } else if (idleTime >= IDLE_LIGHT_MS) {
-    enterLightSleep();
-  }
-}
-
-// =============================================================================
-// MAIN SETUP AND LOOP
-// =============================================================================
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  Serial.println("\n=== WRB ESP32 Transmitter Starting ===");
-  
-  // Initialize pins
-  pinMode(LED_PIN, OUTPUT);
+// One light-sleep "tick": sleeps ~50 ms with GPIO+timer wake, returns cause.
+esp_sleep_wakeup_cause_t lightSleepTick(uint64_t us){
   pinMode(BTN1_PIN, INPUT_PULLUP);
-  pinMode(BTN2_PIN, INPUT_PULLUP);
-  
-  // Initialize button states
-  btn1.pressed = false;
-  btn1.holdDetected = false;
-  btn1.processed = false;
-  btn2.pressed = false;
-  btn2.holdDetected = false;
-  btn2.processed = false;
-  
-  // Initialize LED
-  setLED(true);
-  delay(500);
-  setLED(false);
-  
-  // Initialize WiFi
-  WiFi.mode(WIFI_STA);
-  Serial.print("Transmitter MAC: ");
-  Serial.println(WiFi.macAddress());
-  
-  // Initialize ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("ESP-NOW initialization failed");
-    return;
-  }
-  
-  // Register callbacks
-  esp_now_register_send_cb(OnDataSent);
-  esp_now_register_recv_cb(OnDataRecv);
-  
-  // Add receiver peer
-  esp_now_peer_info_t peerInfo;
-  memcpy(peerInfo.peer_addr, RX_MAC, 6);
-  peerInfo.channel = 1;
-  peerInfo.encrypt = false;
-  
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
-    return;
-  }
-  
-  Serial.print("Added peer: ");
-  printMacAddress(RX_MAC);
-  
-  // Send initial ping
-  sendMessage(MSG_PING);
-  
-  espnowReady = true;
-  lastActivity = millis();
-  
-  Serial.println("Transmitter ready!");
+  if (USE_BTN2) pinMode(BTN2_PIN, INPUT_PULLUP);
+
+  enableGpioWakeLow_Light();
+  esp_sleep_enable_timer_wakeup(us);
+  return (esp_sleep_wakeup_cause_t) esp_light_sleep_start();
 }
 
-void loop() {
-  if (!espnowReady) {
-    delay(1000);
+// ---------- Setup ----------
+void setup(){
+  wakeCause = esp_sleep_get_wakeup_cause();
+
+  Serial.begin(115200);
+  delay(150);
+
+  Serial.printf("Transmitter starting...\n");
+  Serial.printf("Pins: D1=%d, D2=%d, D10=%d\n", D1, D2, D10);
+  Serial.printf("Receiver MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+               RX_MAC[0], RX_MAC[1], RX_MAC[2], RX_MAC[3], RX_MAC[4], RX_MAC[5]);
+  Serial.printf("Wake cause: %d (GPIO=%d, Timer=%d)\n",
+                (int)wakeCause, (int)ESP_SLEEP_WAKEUP_GPIO, (int)ESP_SLEEP_WAKEUP_TIMER);
+
+  // LED PWM
+  pinMode(LED_PIN, OUTPUT);
+  analogWriteResolution(LED_PIN, 8);     // 0..255
+  analogWriteFrequency(LED_PIN, 2000);   // Hz
+  ledOff();
+
+  // Buttons
+  pinMode(BTN1_PIN, INPUT_PULLUP);
+  if (USE_BTN2) pinMode(BTN2_PIN, INPUT_PULLUP);
+  b1.lastLevel = digitalRead(BTN1_PIN);
+  if (USE_BTN2) b2.lastLevel = digitalRead(BTN2_PIN);
+
+  // WiFi/ESP-NOW init
+  WiFi.mode(WIFI_STA);
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
+  if (esp_now_init() != ESP_OK){
+    Serial.println("ESP-NOW init failed");
+    while(true){ ledOn(); delay(120); ledOff(); delay(600); }
+  }
+  esp_now_register_recv_cb(onRecv);
+  addPeer(RX_MAC, 1);
+
+  lastActivityMs = millis(); // start idle timer
+  Serial.println("Transmitter ready! Only accepting messages from authorized receiver.");
+}
+
+// ---------- Loop ----------
+void loop(){
+  uint32_t now = millis();
+  linked = (now - lastAckMs) < 4000;
+
+  // If we're before 5 min idle: normal active mode
+  if (ENABLE_SLEEP && (now - lastActivityMs) < IDLE_LIGHT_MS){
+    // Check for button releases and determine if press or hold
+    if (updateButtonState(b1)) {
+      uint32_t holdDuration = now - b1.pressStartMs;
+      sendBtn(1, holdDuration >= HOLD_THRESHOLD_MS);
+    }
+    if (USE_BTN2 && updateButtonState(b2)) {
+      uint32_t holdDuration = now - b2.pressStartMs;
+      sendBtn(2, holdDuration >= HOLD_THRESHOLD_MS);
+    }
+
+    static uint32_t lastPing = 0;
+    if (now - lastPing >= 500){ lastPing = now; sendPing(); }
+
+    ledTask();
+    delay(1);
     return;
   }
   
-  uint32_t now = millis();
-  
-  // Update buttons
-  updateButton(btn1, 1, BTN1_PIN);
-  updateButton(btn2, 2, BTN2_PIN);
-  
-  // Send periodic ping
-  if (now - lastPing >= 5000) { // Every 5 seconds
-    sendMessage(MSG_PING);
-    lastPing = now;
+  // Between 5 and 15 minutes idle: simple blink + light-sleep bursts
+  if (ENABLE_SLEEP && (now - lastActivityMs) < IDLE_DEEP_MS){
+    // If user presses during this phase, send immediately
+    if (isBtnActive(BTN1_PIN)) { sendBtn(1); return; }
+    if (USE_BTN2 && isBtnActive(BTN2_PIN)) { sendBtn(2); return; }
+
+    // Simple blink every 4 seconds at 10% brightness
+    uint32_t t = (now - lastActivityMs) % SLEEP_BLINK_PERIOD_MS;
+    if (t < 100) {  // 100ms blink
+      ledWriteRaw(SLEEP_BLINK_BRIGHTNESS);
+    } else {
+      ledWriteRaw(0);  // Off for rest of period
+    }
+
+    // Short light-sleep "tick" for power saving
+    esp_sleep_wakeup_cause_t cause = lightSleepTick(50000ULL); // 50 ms
+    if (cause == ESP_SLEEP_WAKEUP_GPIO){
+      delay(20); // settle
+      if (isBtnActive(BTN1_PIN)) { sendBtn(1); return; }
+      if (USE_BTN2 && isBtnActive(BTN2_PIN)) { sendBtn(2); return; }
+    }
+    return;
   }
   
-  // Update LED status (simplified direct control)
-  updateLED();
-  
-  // Check power management
-  checkPowerManagement();
-  
-  // Small delay to prevent overwhelming the system
-  delay(10);
+  // >= 15 minutes idle: DEEP SLEEP
+  if (ENABLE_SLEEP && (now - lastActivityMs) >= IDLE_DEEP_MS){
+    goToDeepSleep(); // does not return
+  }
 }

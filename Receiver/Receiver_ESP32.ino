@@ -1,415 +1,276 @@
-/*
- * WRB ESP32 Receiver
- * Seeed Studio XIAO ESP32C3 Wireless Button System
- * 
- * Features:
- * - Multi-transmitter support (up to 10 devices)
- * - Message parsing (button, hold, ping, ack)
- * - LED feedback for connection status
- * - Serial output for debugging and monitoring
- * - Security validation (MAC address checking)
- * - Error handling for malformed messages
- */
-
-#include <esp_now.h>
 #include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <esp_sleep.h>
+#include "driver/gpio.h"
 
-// =============================================================================
-// CONFIGURATION SECTION
-// =============================================================================
+// ---------- Pins (use Dx aliases) ----------
+#define LED_PIN  D10               // status LED on header D10
+const bool LED_ACTIVE_LOW = false; // set true if LED looks inverted
 
-// Pin Configuration
-#define LED_PIN D10
-
-// Timing Configuration
-const uint32_t PING_INTERVAL_MS = 500;        // Ping interval
-const uint32_t LINK_TIMEOUT_MS = 4000;        // Link timeout
-const uint8_t MAX_TRANSMITTERS = 10;          // Max transmitters
-
-// Message Types
-#define MSG_PING 0xA0
-#define MSG_ACK 0xA1
-#define MSG_BTN 0xB0
-#define MSG_BTN_HOLD 0xB1
-
-// =============================================================================
-// GLOBAL VARIABLES
-// =============================================================================
-
-struct Message {
-  uint8_t msgType;
-  uint8_t button;
-  uint8_t retryCount;
-  uint32_t timestamp;
-} message;
-
-struct TransmitterInfo {
-  uint8_t mac[6];
-  uint32_t lastSeen;
-  bool active;
-  uint8_t buttonCount;
-} transmitters[MAX_TRANSMITTERS];
-
-// Allowed Transmitter MACs (add your transmitter MACs here)
+// ---------- Allowed Transmitter MACs (only these will be accepted) ----------
 uint8_t ALLOWED_TX_MACS[][6] = {
-  { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAC }, // Transmitter 1
-  // Add more transmitters as needed
+  { 0x58,0x8C,0x81,0x9F,0x22,0xAC }, // <-- your TX1 MAC (58:8c:81:9f:22:ac)
+  // Add more allowed transmitters as needed
 };
+const uint8_t NUM_ALLOWED_TXS = sizeof(ALLOWED_TX_MACS) / 6;
 
-const uint8_t ALLOWED_COUNT = sizeof(ALLOWED_TX_MACS) / sizeof(ALLOWED_TX_MACS[0]);
+// ---------- Messages ----------
+enum : uint8_t { MSG_PING=0xA0, MSG_ACK=0xA1, MSG_BTN=0xB0, MSG_BTN_HOLD=0xB1 };
 
-// System state
-bool espnowReady = false;
-uint32_t lastLEDUpdate = 0;
-bool ledState = false;
-uint8_t activeTransmitters = 0;
-uint32_t lastStatusUpdate = 0;
+// ---------- Link tracking ----------
+struct TxLink {
+  uint8_t mac[6];
+  uint32_t lastPingMs;
+  bool linked;
+  uint8_t lastBtn1State;
+  uint8_t lastBtn2State;
+};
+TxLink txLinks[10]; // Support up to 10 transmitters
+uint8_t numTxLinks = 0;
 
-// Button activity tracking
+// ---------- Button state tracking ----------
 uint32_t lastBtnActivityMs = 0;
 uint32_t lastHoldActivityMs = 0;
 
-// LED behavior states
-enum LEDState {
-  LED_BREATHING,    // No transmitter connected
-  LED_CONNECTED,    // Transmitter connected (25% brightness)
-  LED_BUTTON_PRESS, // Button press (100% brightness)
-  LED_BUTTON_HOLD   // Button hold (double blink at 100%)
-};
-
-LEDState currentLEDState = LED_BREATHING;
-uint32_t ledStateStartTime = 0;
-uint32_t breathingPhase = 0;
-uint32_t doubleBlinkCount = 0;
-
-// =============================================================================
-// UTILITY FUNCTIONS
-// =============================================================================
-
-void printMacAddress(uint8_t* mac) {
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  Serial.print(macStr);
-}
-
-void printMessage(const char* prefix, uint8_t type, uint8_t button = 0) {
-  Serial.print(prefix);
-  Serial.print(" Type: 0x");
-  Serial.print(type, HEX);
-  if (button > 0) {
-    Serial.print(" Button: ");
-    Serial.print(button);
-  }
-  Serial.println();
-}
-
-bool isAllowedTransmitter(uint8_t* mac) {
-  for (int i = 0; i < ALLOWED_COUNT; i++) {
-    if (memcmp(mac, ALLOWED_TX_MACS[i], 6) == 0) {
+// ---------- MAC validation helper ----------
+bool isAllowedTransmitter(const uint8_t* mac) {
+  for (uint8_t i = 0; i < NUM_ALLOWED_TXS; i++) {
+    if (memcmp(ALLOWED_TX_MACS[i], mac, 6) == 0) {
       return true;
     }
   }
   return false;
 }
 
-int findTransmitter(uint8_t* mac) {
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
-    if (memcmp(transmitters[i].mac, mac, 6) == 0) {
-      return i;
-    }
-  }
-  return -1;
-}
+// ---------- LED helpers ----------
+inline void ledWriteRaw(uint8_t v){ if(LED_ACTIVE_LOW) v = 255 - v; analogWrite(LED_PIN, v); }
+inline void ledOn(){     ledWriteRaw(255); } // 100% when button received
+inline void ledLinked(){ ledWriteRaw(64);  } // ~25% when linked
+inline void ledOff(){    ledWriteRaw(0);   } // off
 
-int addTransmitter(uint8_t* mac) {
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
-    if (!transmitters[i].active) {
-      memcpy(transmitters[i].mac, mac, 6);
-      transmitters[i].lastSeen = millis();
-      transmitters[i].active = true;
-      transmitters[i].buttonCount = 0;
-      activeTransmitters++;
-      
-      Serial.print("Added transmitter: ");
-      printMacAddress(mac);
-      Serial.print(" (Total active: ");
-      Serial.print(activeTransmitters);
-      Serial.println(")");
-      
-      return i;
-    }
-  }
-  return -1;
-}
-
-void updateTransmitter(int index) {
-  if (index >= 0 && index < MAX_TRANSMITTERS) {
-    transmitters[index].lastSeen = millis();
-  }
-}
-
-void removeInactiveTransmitters() {
-  uint32_t now = millis();
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
-    if (transmitters[i].active && (now - transmitters[i].lastSeen) > LINK_TIMEOUT_MS) {
-      Serial.print("Removing inactive transmitter: ");
-      printMacAddress(transmitters[i].mac);
-      Serial.println();
-      
-      transmitters[i].active = false;
-      activeTransmitters--;
-    }
-  }
-}
-
-void updateLED() {
-  uint32_t now = millis();
+void showNoLinkBreathing(uint32_t now){
+  // Create a smooth breathing animation between 0% and 25% brightness
+  // Using a sine wave with 3 second period (3000ms)
+  float phase = (now % 3000) / 3000.0f * 2.0f * PI;
+  float sine = sin(phase);
   
-  // Check for recent button activity (1 second after button press)
-  bool recentActivity = (now - lastBtnActivityMs) < 1000;
-  bool recentHoldActivity = (now - lastHoldActivityMs) < 800;
+  // Map sine wave (-1 to 1) to brightness range (0% to 25%)
+  // sine goes from -1 to 1, we want 0.0 to 0.25
+  // (sine + 1) / 2 goes from 0 to 1
+  // Then scale to 0.0 to 0.25: 0.0 + (0.25 - 0.0) * value
+  float brightness = 0.25f * ((sine + 1.0f) / 2.0f);
+  
+  // Convert to 0-255 range and write to LED
+  uint8_t ledValue = (uint8_t)(brightness * 255);
+  ledWriteRaw(ledValue);
+}
+
+void showHoldDoubleBlink(uint32_t now){
+  // Double blink animation for hold commands
+  // Total duration: 600ms (300ms per blink cycle)
+  uint32_t t = now % 600;
+  if (t < 100) { ledOn();  return; }    // First blink on
+  if (t < 150) { ledOff(); return; }    // First blink off
+  if (t < 250) { ledOn();  return; }    // Second blink on
+  ledOff();                             // Second blink off
+}
+
+void ledTask(){
+  uint32_t now = millis();
+  bool anyLinked = false;
+  bool recentActivity = (now - lastBtnActivityMs) < 1000; // 1 second after button press
+  bool recentHoldActivity = (now - lastHoldActivityMs) < 800; // 800ms after hold command
+  
+  // Check if any transmitters are linked
+  for (uint8_t i = 0; i < numTxLinks; i++) {
+    if (txLinks[i].linked) {
+      anyLinked = true;
+      break;
+    }
+  }
   
   if (recentHoldActivity) {
-    // Double blink for hold commands
-    uint32_t t = now % 600;
-    if (t < 100) { 
-      analogWrite(LED_PIN, 255); // First blink on
-      return; 
-    }
-    if (t < 150) { 
-      analogWrite(LED_PIN, 0);   // First blink off
-      return; 
-    }
-    if (t < 250) { 
-      analogWrite(LED_PIN, 255); // Second blink on
-      return; 
-    }
-    analogWrite(LED_PIN, 0);     // Second blink off
+    showHoldDoubleBlink(now);  // Double blink when hold command received (highest priority)
   } else if (recentActivity) {
-    // 100% brightness for recent button activity
-    analogWrite(LED_PIN, 255);
-  } else if (activeTransmitters > 0) {
-    // 25% brightness when transmitters connected
-    analogWrite(LED_PIN, 64);
+    ledOn();               // 100% when button activity received
+  } else if (anyLinked) {
+    ledLinked();           // 25% when linked
   } else {
-    // Breathing effect when no transmitters (3 second cycle)
-    breathingPhase = (now / 15) % 200; // 3 second cycle (200 * 15ms)
-    if (breathingPhase < 100) {
-      // Fade in (0-25% of 255 = 0-64)
-      analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
-    } else {
-      // Fade out (0-25% of 255 = 0-64)
-      analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
-    }
+    showNoLinkBreathing(now);  // Breathing animation when no links
   }
 }
 
-void setLEDState(LEDState newState) {
-  currentLEDState = newState;
-  ledStateStartTime = millis();
+// ---------- ESP-NOW helper functions ----------
+void addPeer(const uint8_t mac[6], uint8_t channel=1){
+  esp_now_peer_info_t p{};
+  memcpy(p.peer_addr, mac, 6);
+  p.channel = channel; 
+  p.encrypt = false; 
+  p.ifidx = WIFI_IF_STA;
+  esp_now_del_peer(mac);
+  esp_now_add_peer(&p);
 }
 
-void setLED(bool state) {
-  digitalWrite(LED_PIN, state ? HIGH : LOW);
-  ledState = state;
+void sendAck(const uint8_t* mac) {
+  uint8_t ack = MSG_ACK;
+  esp_err_t result = esp_now_send(mac, &ack, 1);
+  if (result != ESP_OK) {
+    Serial.printf("Failed to send ACK to %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  }
 }
 
-// =============================================================================
-// ESP-NOW FUNCTIONS
-// =============================================================================
-
-void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
-  Serial.print("Received from: ");
-  printMacAddress((uint8_t*)recv_info->src_addr);
-  Serial.print(" (");
-  Serial.print(len);
-  Serial.print(" bytes) - ");
+// ---------- ESP-NOW handlers ----------
+void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len){
+  if (!data || len <= 0) return;
   
-  // Check if transmitter is allowed
-  if (!isAllowedTransmitter((uint8_t*)recv_info->src_addr)) {
-    Serial.println("REJECTED - Unauthorized transmitter");
+  // Only accept messages from allowed transmitters
+  if (!isAllowedTransmitter(info->src_addr)) {
+    Serial.printf("Rejected message from unauthorized MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 info->src_addr[0], info->src_addr[1], info->src_addr[2],
+                 info->src_addr[3], info->src_addr[4], info->src_addr[5]);
     return;
   }
   
-  // Validate message length
-  if (len != sizeof(message)) {
-    Serial.print("REJECTED - Invalid message length: ");
-    Serial.println(len);
-    return;
-  }
-  
-  // Copy and validate message
-  memcpy(&message, incomingData, sizeof(message));
-  
-  // Find or add transmitter
-  int txIndex = findTransmitter((uint8_t*)recv_info->src_addr);
-  if (txIndex == -1) {
-    txIndex = addTransmitter((uint8_t*)recv_info->src_addr);
-    if (txIndex == -1) {
-      Serial.println("REJECTED - Too many transmitters");
-      return;
+  // Find or create transmitter link
+  uint8_t txIndex = 255;
+  for (uint8_t i = 0; i < numTxLinks; i++) {
+    if (memcmp(txLinks[i].mac, info->src_addr, 6) == 0) {
+      txIndex = i;
+      break;
     }
-  } else {
-    updateTransmitter(txIndex);
   }
   
-  // Process message
-  switch (message.msgType) {
+  if (txIndex == 255 && numTxLinks < 10) {
+    txIndex = numTxLinks++;
+    memcpy(txLinks[txIndex].mac, info->src_addr, 6);
+    txLinks[txIndex].linked = false;
+    txLinks[txIndex].lastPingMs = 0;
+    txLinks[txIndex].lastBtn1State = 0;
+    txLinks[txIndex].lastBtn2State = 0;
+    
+    // Add this transmitter as a peer automatically
+    addPeer(info->src_addr, 1);
+    Serial.printf("Authorized transmitter connected: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 info->src_addr[0], info->src_addr[1], info->src_addr[2],
+                 info->src_addr[3], info->src_addr[4], info->src_addr[5]);
+  }
+  
+  if (txIndex == 255) return; // Too many transmitters
+  
+  uint32_t now = millis();
+  
+  switch (data[0]) {
     case MSG_PING:
-      Serial.println("PING");
       // Send ACK back
-      esp_now_send(recv_info->src_addr, (uint8_t*)&message, sizeof(message));
+      sendAck(info->src_addr);
+      txLinks[txIndex].lastPingMs = now;
+      txLinks[txIndex].linked = true;
+      
+      // Immediate LED update for connection
+      ledLinked();
       break;
       
     case MSG_BTN:
-      Serial.print("BTN");
-      Serial.print(message.button);
-      Serial.println(" - Button press detected");
-      
-      // Output to serial for Raspberry Pi
-      Serial.print("BTN");
-      Serial.println(message.button);
-      
-      // Set button activity timestamp
-      lastBtnActivityMs = millis();
-      
-      transmitters[txIndex].buttonCount++;
+      if (len >= 2) {
+        uint8_t btnId = data[1];
+        Serial.printf("RX: BTN%u from %02X:%02X:%02X:%02X:%02X:%02X\n", 
+                     btnId, info->src_addr[0], info->src_addr[1], info->src_addr[2],
+                     info->src_addr[3], info->src_addr[4], info->src_addr[5]);
+        
+        // Send to Pi via serial
+        Serial.printf("BTN%u\n", btnId);
+        
+        lastBtnActivityMs = now;
+        
+        // Immediate LED update for button press
+        ledOn();
+        
+        // Send ACK back
+        sendAck(info->src_addr);
+      }
       break;
       
     case MSG_BTN_HOLD:
-      Serial.print("HOLD");
-      Serial.print(message.button);
-      Serial.println(" - Button hold detected");
-      
-      // Output to serial for Raspberry Pi
-      Serial.print("HOLD");
-      Serial.println(message.button);
-      
-      // Set hold activity timestamp
-      lastHoldActivityMs = millis();
-      
-      transmitters[txIndex].buttonCount++;
+      if (len >= 2) {
+        uint8_t btnId = data[1];
+        Serial.printf("RX: BTN%u HOLD from %02X:%02X:%02X:%02X:%02X:%02X\n", 
+                     btnId, info->src_addr[0], info->src_addr[1], info->src_addr[2],
+                     info->src_addr[3], info->src_addr[4], info->src_addr[5]);
+        
+        // Send to Pi via serial
+        Serial.printf("HOLD%u\n", btnId);
+        
+        lastHoldActivityMs = now;  // Set hold activity timestamp for double blink
+        
+        // Immediate LED update for hold command (start double blink)
+        showHoldDoubleBlink(now);
+        
+        // Send ACK back
+        sendAck(info->src_addr);
+      }
       break;
-      
-    default:
-      Serial.print("UNKNOWN message type: 0x");
-      Serial.println(message.msgType, HEX);
-      break;
   }
 }
 
-void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
-  if (status == ESP_NOW_SEND_SUCCESS) {
-    Serial.println("ACK sent successfully");
-  } else {
-    Serial.println("ACK send failed");
-  }
-}
-
-// =============================================================================
-// STATUS AND MONITORING FUNCTIONS
-// =============================================================================
-
-void printStatus() {
-  Serial.println("\n=== Receiver Status ===");
-  Serial.print("Active transmitters: ");
-  Serial.println(activeTransmitters);
-  Serial.print("ESP-NOW ready: ");
-  Serial.println(espnowReady ? "Yes" : "No");
-  Serial.print("Uptime: ");
-  Serial.print(millis() / 1000);
-  Serial.println(" seconds");
-  
-  Serial.println("\nTransmitter Details:");
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
-    if (transmitters[i].active) {
-      Serial.print("  ");
-      printMacAddress(transmitters[i].mac);
-      Serial.print(" - Buttons: ");
-      Serial.print(transmitters[i].buttonCount);
-      Serial.print(" - Last seen: ");
-      Serial.print((millis() - transmitters[i].lastSeen) / 1000);
-      Serial.println("s ago");
-    }
-  }
-  Serial.println("=======================\n");
-}
-
-// =============================================================================
-// MAIN SETUP AND LOOP
-// =============================================================================
-
-void setup() {
+// ---------- Setup ----------
+void setup(){
   Serial.begin(115200);
-  delay(1000);
-  
-  Serial.println("\n=== WRB ESP32 Receiver Starting ===");
-  
-  // Initialize pins
+  delay(150);
+
+  Serial.printf("Receiver starting...\n");
+  Serial.printf("LED Pin: D10=%d\n", D10);
+  Serial.printf("Allowed transmitters: %d\n", NUM_ALLOWED_TXS);
+  for (uint8_t i = 0; i < NUM_ALLOWED_TXS; i++) {
+    Serial.printf("  TX%d: %02X:%02X:%02X:%02X:%02X:%02X\n", i+1,
+                 ALLOWED_TX_MACS[i][0], ALLOWED_TX_MACS[i][1], ALLOWED_TX_MACS[i][2],
+                 ALLOWED_TX_MACS[i][3], ALLOWED_TX_MACS[i][4], ALLOWED_TX_MACS[i][5]);
+  }
+
+  // LED PWM
   pinMode(LED_PIN, OUTPUT);
-  
-  // Initialize LED
-  setLED(true);
-  delay(1000);
-  setLED(false);
-  
-  // Initialize transmitter array
-  for (int i = 0; i < MAX_TRANSMITTERS; i++) {
-    transmitters[i].active = false;
-    transmitters[i].buttonCount = 0;
-  }
-  
-  // Initialize WiFi
+  analogWriteResolution(LED_PIN, 8);     // 0..255
+  analogWriteFrequency(LED_PIN, 2000);   // Hz
+  ledOff();
+
+  // WiFi/ESP-NOW init
   WiFi.mode(WIFI_STA);
-  Serial.print("Receiver MAC: ");
-  Serial.println(WiFi.macAddress());
-  
-  // Print allowed transmitters
-  Serial.println("Allowed transmitters:");
-  for (int i = 0; i < ALLOWED_COUNT; i++) {
-    Serial.print("  ");
-    printMacAddress((uint8_t*)ALLOWED_TX_MACS[i]);
-    Serial.println();
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
+  if (esp_now_init() != ESP_OK){
+    Serial.println("ESP-NOW init failed");
+    while(true){ ledOn(); delay(120); ledOff(); delay(600); }
   }
+  esp_now_register_recv_cb(onRecv);
   
-  // Initialize ESP-NOW
-  if (esp_now_init() != ESP_OK) {
-    Serial.println("ESP-NOW initialization failed");
-    return;
-  }
-  
-  // Register callbacks
-  esp_now_register_recv_cb(OnDataRecv);
-  esp_now_register_send_cb(OnDataSent);
-  
-  espnowReady = true;
-  lastStatusUpdate = millis();
-  
-  Serial.println("Receiver ready!");
-  Serial.println("Waiting for transmitter messages...");
+  Serial.println("Receiver ready! Only accepting authorized transmitters.");
 }
 
-void loop() {
-  if (!espnowReady) {
-    delay(1000);
-    return;
-  }
-  
+// ---------- Loop ----------
+void loop(){
   uint32_t now = millis();
   
-  // Update LED status (simplified direct control)
-  updateLED();
-  
-  // Remove inactive transmitters
-  removeInactiveTransmitters();
-  
-  // Print status every 30 seconds
-  if (now - lastStatusUpdate >= 30000) {
-    printStatus();
-    lastStatusUpdate = now;
+  // Update link status (4 second timeout)
+  for (uint8_t i = 0; i < numTxLinks; i++) {
+    txLinks[i].linked = (now - txLinks[i].lastPingMs) < 4000;
   }
   
-  // Small delay to prevent overwhelming the system
+  // Update LED
+  ledTask();
+  
+  // Print status every 10 seconds
+  static uint32_t lastStatusMs = 0;
+  if (now - lastStatusMs >= 10000) {
+    lastStatusMs = now;
+    uint8_t linkedCount = 0;
+    for(uint8_t i = 0; i < numTxLinks; i++) {
+      if(txLinks[i].linked) linkedCount++;
+    }
+    Serial.printf("Status: %d transmitters, %d linked\n", numTxLinks, linkedCount);
+  }
+  
   delay(10);
 }
