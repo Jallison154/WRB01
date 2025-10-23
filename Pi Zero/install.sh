@@ -144,11 +144,85 @@ install_dependencies() {
 install_python_packages() {
     print_step "Installing Python packages..."
     
-    # Install Python packages via pip
-    pip3 install --user --upgrade pip
-    pip3 install --user pygame pyserial numpy RPi.GPIO psutil
+    # Check if we're in an externally managed environment
+    if python3 -c "import sys; print('externally-managed' in str(sys.path))" 2>/dev/null; then
+        print_info "Detected externally managed Python environment"
+        print_info "Installing Python packages via apt instead of pip..."
+        
+        # Install Python packages via apt (system packages)
+        PYTHON_PACKAGES=(
+            "python3-pygame"
+            "python3-serial"
+            "python3-numpy"
+            "python3-rpi.gpio"
+            "python3-psutil"
+            "python3-pip"
+            "python3-venv"
+            "python3-full"
+        )
+        
+        for package in "${PYTHON_PACKAGES[@]}"; do
+            print_info "Installing $package via apt..."
+            sudo apt install -y "$package"
+        done
+        
+        print_success "Python packages installed via apt"
+    else
+        print_info "Installing Python packages via pip..."
+        
+        # Try user installation first
+        if pip3 install --user --upgrade pip 2>/dev/null; then
+            pip3 install --user pygame pyserial numpy RPi.GPIO psutil
+            print_success "Python packages installed via pip (user)"
+        else
+            print_warning "Pip installation failed, falling back to apt..."
+            
+            # Fallback to apt installation
+            PYTHON_PACKAGES=(
+                "python3-pygame"
+                "python3-serial"
+                "python3-numpy"
+                "python3-rpi.gpio"
+                "python3-psutil"
+            )
+            
+            for package in "${PYTHON_PACKAGES[@]}"; do
+                sudo apt install -y "$package"
+            done
+            
+            print_success "Python packages installed via apt (fallback)"
+        fi
+    fi
+}
+
+create_virtual_environment() {
+    print_step "Creating Python virtual environment (alternative method)..."
     
-    print_success "Python packages installed successfully"
+    # Create virtual environment
+    python3 -m venv "$WRB_HOME/venv"
+    
+    # Activate virtual environment and install packages
+    source "$WRB_HOME/venv/bin/activate"
+    
+    # Upgrade pip in virtual environment
+    pip install --upgrade pip
+    
+    # Install required packages in virtual environment
+    pip install pygame pyserial numpy RPi.GPIO psutil
+    
+    # Create activation script
+    cat > "$WRB_HOME/activate_venv.sh" << 'EOF'
+#!/bin/bash
+# Activate WRB virtual environment
+source ~/WRB/venv/bin/activate
+echo "Virtual environment activated"
+echo "Run: python PiScript"
+EOF
+    
+    chmod +x "$WRB_HOME/activate_venv.sh"
+    
+    print_success "Virtual environment created at $WRB_HOME/venv"
+    print_info "To use virtual environment: source $WRB_HOME/activate_venv.sh"
 }
 
 # =============================================================================
@@ -418,7 +492,8 @@ Environment=USER=$USER
 Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=pulse
 Environment=PULSE_RUNTIME_PATH=/run/user/$(id -u)/pulse
-ExecStart=/usr/bin/python3 $WRB_HOME/PiScript
+# Use virtual environment if available, otherwise system Python
+ExecStart=/bin/bash -c 'if [ -f "$WRB_HOME/venv/bin/activate" ]; then source $WRB_HOME/venv/bin/activate && python $WRB_HOME/PiScript; else /usr/bin/python3 $WRB_HOME/PiScript; fi'
 Restart=on-failure
 RestartSec=10
 RestartPreventExitStatus=1
@@ -990,6 +1065,11 @@ main_installation() {
     install_dependencies
     install_python_packages
     
+    # Create virtual environment if requested
+    if [ "${2:-}" = "--venv" ]; then
+        create_virtual_environment
+    fi
+    
     # Repository setup
     clone_repository
     
@@ -1074,6 +1154,7 @@ case "${1:-}" in
         echo "  --help, -h     Show this help message"
         echo "  --version, -v  Show version information"
         echo "  --verify       Verify installation without installing"
+        echo "  --venv         Use Python virtual environment (recommended for externally managed environments)"
         echo
         exit 0
         ;;
