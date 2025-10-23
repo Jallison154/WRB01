@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Fix Final WRB Issues
-Fix permissions and audio device problems
+Fix Final WRB Issues - Service Path and Audio
 """
 import subprocess
 import os
@@ -25,28 +24,18 @@ def run_command(cmd, description):
         return False
 
 def fix_final_issues():
-    """Fix final issues"""
+    """Fix service path and audio issues"""
     print("=== WRB Final Issues Fix ===")
     
-    # Fix script permissions
-    print("\n1. Fixing script permissions...")
     home_dir = os.path.expanduser("~")
     script_dir = f"{home_dir}/WRB01/Pi Zero"
     
-    # Make all Python scripts executable
-    scripts = ["PiScript", "test_pwm.py", "startup_test.py", "test_complete_system.py", 
-               "fix_dependencies.py", "diagnose_service.py", "fix_debian_packages.py"]
+    print(f"Home directory: {home_dir}")
+    print(f"Script directory: {script_dir}")
+    print(f"Script exists: {os.path.exists(f'{script_dir}/PiScript')}")
     
-    for script in scripts:
-        script_path = f"{script_dir}/{script}"
-        if os.path.exists(script_path):
-            os.chmod(script_path, 0o755)
-            print(f"   ✅ {script} - Made executable")
-        else:
-            print(f"   ⚠️  {script} - Not found")
-    
-    # Fix service file path issue
-    print("\n2. Fixing service file...")
+    # 1. Fix service file with correct path
+    print("\n1. Fixing service file...")
     service_content = f"""[Unit]
 Description=WRB Enhanced Audio System
 After=network.target
@@ -63,48 +52,62 @@ Environment=HOME={home_dir}
 Environment=USER=wrb01
 Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=alsa
-Environment=AUDIODEV=plughw:0,0
+Environment=AUDIODEV=default
 Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
-ExecStartPre=/bin/sleep 3
 ExecStart=/usr/bin/python3 {script_dir}/PiScript
 Restart=on-failure
-RestartSec=5
+RestartSec=10
 RestartPreventExitStatus=1
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=30
-TimeoutStopSec=5
+TimeoutStartSec=60
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target"""
     
-    # Write new service file
+    # Write the correct service file
     with open(f"{script_dir}/WRB-enhanced-fixed.service", "w") as f:
         f.write(service_content)
     
-    # Install the fixed service file
+    # Install the service file
     run_command(f"sudo cp '{script_dir}/WRB-enhanced-fixed.service' /etc/systemd/system/WRB-enhanced.service", "Installing fixed service file")
     run_command("sudo systemctl daemon-reload", "Reloading systemd")
     
-    # Fix audio device issues
-    print("\n3. Fixing audio device...")
+    # 2. Fix audio device issues
+    print("\n2. Fixing audio device...")
     
     # Check available audio devices
     run_command("aplay -l", "Available audio devices")
     
-    # Test audio device
-    run_command("speaker-test -t wav -c 2 -l 1", "Testing audio device")
+    # Test different audio devices
+    print("\nTesting audio devices...")
+    devices_to_test = [
+        "default",
+        "plughw:0,0", 
+        "plughw:1,0",
+        "hw:0,0",
+        "hw:1,0"
+    ]
     
-    # Set audio environment variables
-    run_command("export SDL_AUDIODRIVER=alsa", "Setting SDL audio driver")
-    run_command("export AUDIODEV=plughw:0,0", "Setting audio device")
+    for device in devices_to_test:
+        print(f"Testing device: {device}")
+        result = subprocess.run(f"speaker-test -t wav -c 2 -D {device} -l 1", 
+                              shell=True, capture_output=True, text=True, timeout=3)
+        if result.returncode == 0:
+            print(f"   ✅ {device} works")
+        else:
+            print(f"   ❌ {device} failed")
     
-    # Test service
-    print("\n4. Testing service...")
+    # 3. Test service
+    print("\n3. Testing service...")
     run_command("sudo systemctl stop WRB-enhanced.service", "Stopping service")
     run_command("sudo systemctl start WRB-enhanced.service", "Starting service")
     
-    # Check service status
+    # Wait and check status
+    import time
+    time.sleep(3)
+    
     result = subprocess.run(['systemctl', 'is-active', 'WRB-enhanced.service'], 
                           capture_output=True, text=True)
     if result.stdout.strip() == 'active':
