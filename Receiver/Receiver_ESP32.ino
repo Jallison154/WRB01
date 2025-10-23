@@ -53,8 +53,6 @@ struct TransmitterInfo {
 // Allowed Transmitter MACs (add your transmitter MACs here)
 uint8_t ALLOWED_TX_MACS[][6] = {
   { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAC }, // Transmitter 1
-  { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAD }, // Transmitter 2
-  { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAE }, // Transmitter 3
   // Add more transmitters as needed
 };
 
@@ -66,6 +64,19 @@ uint32_t lastLEDUpdate = 0;
 bool ledState = false;
 uint8_t activeTransmitters = 0;
 uint32_t lastStatusUpdate = 0;
+
+// LED behavior states
+enum LEDState {
+  LED_BREATHING,    // No transmitter connected
+  LED_CONNECTED,    // Transmitter connected (25% brightness)
+  LED_BUTTON_PRESS, // Button press (100% brightness)
+  LED_BUTTON_HOLD   // Button hold (double blink at 100%)
+};
+
+LEDState currentLEDState = LED_BREATHING;
+uint32_t ledStateStartTime = 0;
+uint32_t breathingPhase = 0;
+uint32_t doubleBlinkCount = 0;
 
 // =============================================================================
 // UTILITY FUNCTIONS
@@ -151,22 +162,56 @@ void removeInactiveTransmitters() {
 void updateLED() {
   uint32_t now = millis();
   
-  if (activeTransmitters > 0) {
-    // Blink LED when transmitters are active
-    if (now - lastLEDUpdate >= 500) { // 500ms blink interval
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState);
-      lastLEDUpdate = now;
-    }
-  } else {
-    // Solid LED when no transmitters
-    digitalWrite(LED_PIN, HIGH);
-    ledState = true;
+  switch (currentLEDState) {
+    case LED_BREATHING:
+      // Breathing effect when no transmitters (0-25% brightness)
+      breathingPhase = (now / 50) % 200; // 10 second cycle (200 * 50ms)
+      if (breathingPhase < 100) {
+        // Fade in (0-25% of 255 = 0-64)
+        analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
+      } else {
+        // Fade out (0-25% of 255 = 0-64)
+        analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
+      }
+      break;
+      
+    case LED_CONNECTED:
+      // 25% brightness when transmitter connected
+      analogWrite(LED_PIN, 64); // 25% of 255
+      break;
+      
+    case LED_BUTTON_PRESS:
+      // 100% brightness for button press
+      analogWrite(LED_PIN, 255);
+      // Return to connected state after 200ms
+      if (now - ledStateStartTime >= 200) {
+        currentLEDState = LED_CONNECTED;
+      }
+      break;
+      
+    case LED_BUTTON_HOLD:
+      // Double blink at 100% brightness
+      uint32_t blinkPhase = (now - ledStateStartTime) % 400; // 400ms cycle
+      if (blinkPhase < 50 || (blinkPhase >= 200 && blinkPhase < 250)) {
+        analogWrite(LED_PIN, 255); // ON
+      } else {
+        analogWrite(LED_PIN, 0);   // OFF
+      }
+      // Return to connected state after 1 second
+      if (now - ledStateStartTime >= 1000) {
+        currentLEDState = LED_CONNECTED;
+      }
+      break;
   }
 }
 
+void setLEDState(LEDState newState) {
+  currentLEDState = newState;
+  ledStateStartTime = millis();
+}
+
 void setLED(bool state) {
-  digitalWrite(LED_PIN, state);
+  digitalWrite(LED_PIN, state ? HIGH : LOW);
   ledState = state;
 }
 
@@ -174,15 +219,15 @@ void setLED(bool state) {
 // ESP-NOW FUNCTIONS
 // =============================================================================
 
-void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
   Serial.print("Received from: ");
-  printMacAddress((uint8_t*)mac);
+  printMacAddress((uint8_t*)recv_info->src_addr);
   Serial.print(" (");
   Serial.print(len);
   Serial.print(" bytes) - ");
   
   // Check if transmitter is allowed
-  if (!isAllowedTransmitter((uint8_t*)mac)) {
+  if (!isAllowedTransmitter((uint8_t*)recv_info->src_addr)) {
     Serial.println("REJECTED - Unauthorized transmitter");
     return;
   }
@@ -198,9 +243,9 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
   memcpy(&message, incomingData, sizeof(message));
   
   // Find or add transmitter
-  int txIndex = findTransmitter((uint8_t*)mac);
+  int txIndex = findTransmitter((uint8_t*)recv_info->src_addr);
   if (txIndex == -1) {
-    txIndex = addTransmitter((uint8_t*)mac);
+    txIndex = addTransmitter((uint8_t*)recv_info->src_addr);
     if (txIndex == -1) {
       Serial.println("REJECTED - Too many transmitters");
       return;
@@ -214,7 +259,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
     case MSG_PING:
       Serial.println("PING");
       // Send ACK back
-      esp_now_send(mac, (uint8_t*)&message, sizeof(message));
+      esp_now_send(recv_info->src_addr, (uint8_t*)&message, sizeof(message));
       break;
       
     case MSG_BTN:
@@ -225,6 +270,9 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
       // Output to serial for Raspberry Pi
       Serial.print("BTN");
       Serial.println(message.button);
+      
+      // Set LED to button press state
+      setLEDState(LED_BUTTON_PRESS);
       
       transmitters[txIndex].buttonCount++;
       break;
@@ -238,6 +286,9 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
       Serial.print("HOLD");
       Serial.println(message.button);
       
+      // Set LED to button hold state
+      setLEDState(LED_BUTTON_HOLD);
+      
       transmitters[txIndex].buttonCount++;
       break;
       
@@ -248,7 +299,7 @@ void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
   }
 }
 
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   if (status == ESP_NOW_SEND_SUCCESS) {
     Serial.println("ACK sent successfully");
   } else {
@@ -346,6 +397,19 @@ void loop() {
   }
   
   uint32_t now = millis();
+  
+  // Update LED status based on transmitter count
+  if (activeTransmitters > 0) {
+    // Only change to connected state if not in button states
+    if (currentLEDState == LED_BREATHING) {
+      setLEDState(LED_CONNECTED);
+    }
+  } else {
+    // No transmitters - go to breathing state
+    if (currentLEDState != LED_BREATHING) {
+      setLEDState(LED_BREATHING);
+    }
+  }
   
   // Update LED status
   updateLED();

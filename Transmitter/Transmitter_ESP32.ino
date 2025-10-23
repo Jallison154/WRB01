@@ -71,6 +71,19 @@ uint32_t lastLEDUpdate = 0;
 bool ledState = false;
 uint8_t retryCount = 0;
 
+// LED behavior states
+enum LEDState {
+  LED_BREATHING,    // No connection to receiver
+  LED_CONNECTED,    // Connected to receiver (25% brightness)
+  LED_BUTTON_PRESS, // Button press (100% brightness)
+  LED_BUTTON_HOLD   // Button hold (double blink at 100%)
+};
+
+LEDState currentLEDState = LED_BREATHING;
+uint32_t ledStateStartTime = 0;
+uint32_t breathingPhase = 0;
+bool receiverConnected = false;
+
 // =============================================================================
 // UTILITY FUNCTIONS
 // =============================================================================
@@ -95,15 +108,57 @@ void printMessage(const char* prefix, uint8_t type, uint8_t button = 0) {
 
 void updateLED() {
   uint32_t now = millis();
-  if (now - lastLEDUpdate >= LED_BLINK_MS) {
-    ledState = !ledState;
-    digitalWrite(LED_PIN, ledState);
-    lastLEDUpdate = now;
+  
+  switch (currentLEDState) {
+    case LED_BREATHING:
+      // Breathing effect when no connection to receiver (0-25% brightness)
+      breathingPhase = (now / 50) % 200; // 10 second cycle (200 * 50ms)
+      if (breathingPhase < 100) {
+        // Fade in (0-25% of 255 = 0-64)
+        analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
+      } else {
+        // Fade out (0-25% of 255 = 0-64)
+        analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
+      }
+      break;
+      
+    case LED_CONNECTED:
+      // 25% brightness when connected to receiver
+      analogWrite(LED_PIN, 64); // 25% of 255
+      break;
+      
+    case LED_BUTTON_PRESS:
+      // 100% brightness for button press
+      analogWrite(LED_PIN, 255);
+      // Return to connected state after 200ms
+      if (now - ledStateStartTime >= 200) {
+        currentLEDState = LED_CONNECTED;
+      }
+      break;
+      
+    case LED_BUTTON_HOLD:
+      // Double blink at 100% brightness
+      uint32_t blinkPhase = (now - ledStateStartTime) % 400; // 400ms cycle
+      if (blinkPhase < 50 || (blinkPhase >= 200 && blinkPhase < 250)) {
+        analogWrite(LED_PIN, 255); // ON
+      } else {
+        analogWrite(LED_PIN, 0);   // OFF
+      }
+      // Return to connected state after 1 second
+      if (now - ledStateStartTime >= 1000) {
+        currentLEDState = LED_CONNECTED;
+      }
+      break;
   }
 }
 
+void setLEDState(LEDState newState) {
+  currentLEDState = newState;
+  ledStateStartTime = millis();
+}
+
 void setLED(bool state) {
-  digitalWrite(LED_PIN, state);
+  digitalWrite(LED_PIN, state ? HIGH : LOW);
   ledState = state;
 }
 
@@ -111,16 +166,18 @@ void setLED(bool state) {
 // ESP-NOW FUNCTIONS
 // =============================================================================
 
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   printMessage("Send Status: ", status == ESP_NOW_SEND_SUCCESS ? MSG_ACK : MSG_PING);
   
   if (status == ESP_NOW_SEND_SUCCESS) {
     Serial.println("Message sent successfully");
     retryCount = 0;
     lastActivity = millis();
-    setLED(true);
+    receiverConnected = true;
+    // Don't change LED state here - let button handlers manage it
   } else {
     Serial.println("Message send failed");
+    receiverConnected = false;
     if (retryCount < MAX_RETRIES) {
       retryCount++;
       delay(RETRY_DELAY_MS);
@@ -133,18 +190,19 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   }
 }
 
-void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
   if (len == sizeof(message)) {
     memcpy(&message, incomingData, sizeof(message));
     
     Serial.print("Received from: ");
-    printMacAddress((uint8_t*)mac);
+    printMacAddress((uint8_t*)recv_info->src_addr);
     printMessage("", message.msgType, message.button);
     
     if (message.msgType == MSG_ACK) {
       Serial.println("Received ACK");
       lastActivity = millis();
-      setLED(false);
+      receiverConnected = true;
+      // Don't change LED state here - let main loop manage it
     }
   }
 }
@@ -206,6 +264,8 @@ void updateButton(ButtonState& btn, uint8_t buttonNum, uint8_t pin) {
         // Send regular button press
         sendMessage(MSG_BTN, buttonNum);
         btn.processed = true;
+        // Set LED to button press state
+        setLEDState(LED_BUTTON_PRESS);
       }
     }
     
@@ -218,6 +278,8 @@ void updateButton(ButtonState& btn, uint8_t buttonNum, uint8_t pin) {
         Serial.print(buttonNum);
         Serial.println(" hold detected");
         sendMessage(MSG_BTN_HOLD, buttonNum);
+        // Set LED to button hold state
+        setLEDState(LED_BUTTON_HOLD);
       }
     }
   }
@@ -349,12 +411,21 @@ void loop() {
     lastPing = now;
   }
   
-  // Update LED for activity indication
-  if (btn1.pressed || btn2.pressed) {
-    updateLED();
+  // Update LED status based on connection state
+  if (receiverConnected) {
+    // Only change to connected state if not in button states
+    if (currentLEDState == LED_BREATHING) {
+      setLEDState(LED_CONNECTED);
+    }
   } else {
-    setLED(false);
+    // No connection - go to breathing state
+    if (currentLEDState != LED_BREATHING) {
+      setLEDState(LED_BREATHING);
+    }
   }
+  
+  // Update LED status
+  updateLED();
   
   // Check power management
   checkPowerManagement();
