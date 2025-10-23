@@ -14,6 +14,7 @@ Environment=HOME=/home/pi
 Environment=USER=pi
 Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=alsa
+Environment=AUDIODEV=plughw:0,0
 Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
 ExecStartPre=/bin/sleep 15
 ExecStartPre=/bin/bash -c 'pulseaudio --start || true'

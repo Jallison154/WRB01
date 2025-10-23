@@ -109,24 +109,31 @@ def cleanup_gpio():
 # =============================================================================
 
 def setup_audio():
-    """Initialize audio system"""
+    """Initialize audio system - simplified approach based on reference code"""
     global mixer, channels
     
     try:
-        # Initialize pygame mixer
-        pygame.mixer.pre_init(
+        # Set audio environment variables (like the reference code)
+        os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
+        os.environ.setdefault("AUDIODEV", "plughw:0,0")
+        
+        # Initialize mixer ONCE and keep it open (like reference code)
+        pygame.mixer.init(
             frequency=MIX_FREQ,
             size=-16,  # 16-bit signed
             channels=2,  # Stereo
             buffer=MIX_BUF
         )
-        pygame.mixer.init()
         
-        # Create 4 audio channels
+        # Set number of channels (like reference code)
+        pygame.mixer.set_num_channels(16)
+        
+        # Create audio channels
         for i in range(4):
             channels[i] = pygame.mixer.Channel(i)
         
         logger.info("Audio system initialized successfully")
+        logger.info("Audio: mixer ready")
         return True
     except Exception as e:
         logger.error(f"Audio setup failed: {e}")
