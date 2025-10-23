@@ -76,7 +76,9 @@ enum LEDState {
   LED_BREATHING,    // No connection to receiver
   LED_CONNECTED,    // Connected to receiver (25% brightness)
   LED_BUTTON_PRESS, // Button press (100% brightness)
-  LED_BUTTON_HOLD   // Button hold (double blink at 100%)
+  LED_BUTTON_HOLD,  // Button hold (double blink at 100%)
+  LED_LIGHT_SLEEP,  // Light sleep (double blink at 10%)
+  LED_DEEP_SLEEP    // Deep sleep (off)
 };
 
 LEDState currentLEDState = LED_BREATHING;
@@ -109,52 +111,40 @@ void printMessage(const char* prefix, uint8_t type, uint8_t button = 0) {
 void updateLED() {
   uint32_t now = millis();
   
-  switch (currentLEDState) {
-    case LED_BREATHING:
-      // Breathing effect when no connection to receiver (0-25% brightness)
-      breathingPhase = (now / 50) % 200; // 10 second cycle (200 * 50ms)
-      if (breathingPhase < 100) {
-        // Fade in (0-25% of 255 = 0-64)
-        analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
-      } else {
-        // Fade out (0-25% of 255 = 0-64)
-        analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
-      }
-      break;
-      
-    case LED_CONNECTED:
-      // 25% brightness when connected to receiver
-      analogWrite(LED_PIN, 64); // 25% of 255
-      break;
-      
-    case LED_BUTTON_PRESS:
-      // 100% brightness for button press
-      analogWrite(LED_PIN, 255);
-      // Return to connected state after 200ms
-      if (now - ledStateStartTime >= 200) {
-        currentLEDState = LED_CONNECTED;
-      }
-      break;
-      
-    case LED_BUTTON_HOLD:
-      // Double blink at 100% brightness
-      uint32_t blinkPhase = (now - ledStateStartTime) % 400; // 400ms cycle
-      if (blinkPhase < 50 || (blinkPhase >= 200 && blinkPhase < 250)) {
-        analogWrite(LED_PIN, 255); // ON
-      } else {
-        analogWrite(LED_PIN, 0);   // OFF
-      }
-      // Return to connected state after 1 second
-      if (now - ledStateStartTime >= 1000) {
-        currentLEDState = LED_CONNECTED;
-      }
-      break;
+  // Check if any button is currently pressed
+  bool anyButtonPressed = !digitalRead(BTN1_PIN) || !digitalRead(BTN2_PIN);
+  
+  if (anyButtonPressed) {
+    // Button is pressed - 100% brightness
+    analogWrite(LED_PIN, 255);
+    Serial.println("LED: Button pressed - 100% brightness");
+    return;
+  }
+  
+  // No button pressed - check connection state
+  if (receiverConnected) {
+    // Connected - 25% brightness
+    analogWrite(LED_PIN, 64);
+    Serial.println("LED: Connected - 25% brightness");
+  } else {
+    // Not connected - breathing effect (3 second cycle)
+    breathingPhase = (now / 15) % 200; // 3 second cycle (200 * 15ms)
+    if (breathingPhase < 100) {
+      // Fade in (0-25% of 255 = 0-64)
+      analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
+    } else {
+      // Fade out (0-25% of 255 = 0-64)
+      analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
+    }
+    Serial.println("LED: Not connected - breathing");
   }
 }
 
 void setLEDState(LEDState newState) {
   currentLEDState = newState;
   ledStateStartTime = millis();
+  Serial.print("setLEDState called: ");
+  Serial.println(newState);
 }
 
 void setLED(bool state) {
@@ -264,8 +254,10 @@ void updateButton(ButtonState& btn, uint8_t buttonNum, uint8_t pin) {
         // Send regular button press
         sendMessage(MSG_BTN, buttonNum);
         btn.processed = true;
-        // Set LED to button press state
-        setLEDState(LED_BUTTON_PRESS);
+        // LED will be handled by updateLED() based on button state
+        Serial.print("Button ");
+        Serial.print(buttonNum);
+        Serial.println(" press detected");
       }
     }
     
@@ -291,11 +283,10 @@ void updateButton(ButtonState& btn, uint8_t buttonNum, uint8_t pin) {
 
 void enterLightSleep() {
   Serial.println("Entering light sleep...");
-  setLED(false);
+  setLEDState(LED_LIGHT_SLEEP);
   
-  // Configure wake-up sources
-  esp_sleep_enable_ext0_wakeup(BTN1_PIN, 0); // Wake on button 1 press (LOW)
-  esp_sleep_enable_ext1_wakeup(1ULL << BTN2_PIN, ESP_EXT1_WAKEUP_ANY_HIGH); // Wake on button 2 press
+  // Configure wake-up sources for ESP32C3
+  esp_deep_sleep_enable_gpio_wakeup((1ULL << BTN1_PIN) | (1ULL << BTN2_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
   
   // Enter light sleep
   esp_light_sleep_start();
@@ -306,11 +297,10 @@ void enterLightSleep() {
 
 void enterDeepSleep() {
   Serial.println("Entering deep sleep...");
-  setLED(false);
+  setLEDState(LED_DEEP_SLEEP);
   
-  // Configure wake-up sources
-  esp_sleep_enable_ext0_wakeup(BTN1_PIN, 0); // Wake on button 1 press (LOW)
-  esp_sleep_enable_ext1_wakeup(1ULL << BTN2_PIN, ESP_EXT1_WAKEUP_ANY_HIGH); // Wake on button 2 press
+  // Configure wake-up sources for ESP32C3
+  esp_deep_sleep_enable_gpio_wakeup((1ULL << BTN1_PIN) | (1ULL << BTN2_PIN), ESP_GPIO_WAKEUP_GPIO_LOW);
   
   // Enter deep sleep
   esp_deep_sleep_start();
@@ -411,20 +401,7 @@ void loop() {
     lastPing = now;
   }
   
-  // Update LED status based on connection state
-  if (receiverConnected) {
-    // Only change to connected state if not in button states
-    if (currentLEDState == LED_BREATHING) {
-      setLEDState(LED_CONNECTED);
-    }
-  } else {
-    // No connection - go to breathing state
-    if (currentLEDState != LED_BREATHING) {
-      setLEDState(LED_BREATHING);
-    }
-  }
-  
-  // Update LED status
+  // Update LED status (simplified direct control)
   updateLED();
   
   // Check power management

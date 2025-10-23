@@ -65,6 +65,10 @@ bool ledState = false;
 uint8_t activeTransmitters = 0;
 uint32_t lastStatusUpdate = 0;
 
+// Button activity tracking
+uint32_t lastBtnActivityMs = 0;
+uint32_t lastHoldActivityMs = 0;
+
 // LED behavior states
 enum LEDState {
   LED_BREATHING,    // No transmitter connected
@@ -162,46 +166,42 @@ void removeInactiveTransmitters() {
 void updateLED() {
   uint32_t now = millis();
   
-  switch (currentLEDState) {
-    case LED_BREATHING:
-      // Breathing effect when no transmitters (0-25% brightness)
-      breathingPhase = (now / 50) % 200; // 10 second cycle (200 * 50ms)
-      if (breathingPhase < 100) {
-        // Fade in (0-25% of 255 = 0-64)
-        analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
-      } else {
-        // Fade out (0-25% of 255 = 0-64)
-        analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
-      }
-      break;
-      
-    case LED_CONNECTED:
-      // 25% brightness when transmitter connected
-      analogWrite(LED_PIN, 64); // 25% of 255
-      break;
-      
-    case LED_BUTTON_PRESS:
-      // 100% brightness for button press
-      analogWrite(LED_PIN, 255);
-      // Return to connected state after 200ms
-      if (now - ledStateStartTime >= 200) {
-        currentLEDState = LED_CONNECTED;
-      }
-      break;
-      
-    case LED_BUTTON_HOLD:
-      // Double blink at 100% brightness
-      uint32_t blinkPhase = (now - ledStateStartTime) % 400; // 400ms cycle
-      if (blinkPhase < 50 || (blinkPhase >= 200 && blinkPhase < 250)) {
-        analogWrite(LED_PIN, 255); // ON
-      } else {
-        analogWrite(LED_PIN, 0);   // OFF
-      }
-      // Return to connected state after 1 second
-      if (now - ledStateStartTime >= 1000) {
-        currentLEDState = LED_CONNECTED;
-      }
-      break;
+  // Check for recent button activity (1 second after button press)
+  bool recentActivity = (now - lastBtnActivityMs) < 1000;
+  bool recentHoldActivity = (now - lastHoldActivityMs) < 800;
+  
+  if (recentHoldActivity) {
+    // Double blink for hold commands
+    uint32_t t = now % 600;
+    if (t < 100) { 
+      analogWrite(LED_PIN, 255); // First blink on
+      return; 
+    }
+    if (t < 150) { 
+      analogWrite(LED_PIN, 0);   // First blink off
+      return; 
+    }
+    if (t < 250) { 
+      analogWrite(LED_PIN, 255); // Second blink on
+      return; 
+    }
+    analogWrite(LED_PIN, 0);     // Second blink off
+  } else if (recentActivity) {
+    // 100% brightness for recent button activity
+    analogWrite(LED_PIN, 255);
+  } else if (activeTransmitters > 0) {
+    // 25% brightness when transmitters connected
+    analogWrite(LED_PIN, 64);
+  } else {
+    // Breathing effect when no transmitters (3 second cycle)
+    breathingPhase = (now / 15) % 200; // 3 second cycle (200 * 15ms)
+    if (breathingPhase < 100) {
+      // Fade in (0-25% of 255 = 0-64)
+      analogWrite(LED_PIN, breathingPhase * 0.64); // 0-64 range
+    } else {
+      // Fade out (0-25% of 255 = 0-64)
+      analogWrite(LED_PIN, (200 - breathingPhase) * 0.64);
+    }
   }
 }
 
@@ -271,8 +271,8 @@ void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
       Serial.print("BTN");
       Serial.println(message.button);
       
-      // Set LED to button press state
-      setLEDState(LED_BUTTON_PRESS);
+      // Set button activity timestamp
+      lastBtnActivityMs = millis();
       
       transmitters[txIndex].buttonCount++;
       break;
@@ -286,8 +286,8 @@ void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
       Serial.print("HOLD");
       Serial.println(message.button);
       
-      // Set LED to button hold state
-      setLEDState(LED_BUTTON_HOLD);
+      // Set hold activity timestamp
+      lastHoldActivityMs = millis();
       
       transmitters[txIndex].buttonCount++;
       break;
@@ -398,20 +398,7 @@ void loop() {
   
   uint32_t now = millis();
   
-  // Update LED status based on transmitter count
-  if (activeTransmitters > 0) {
-    // Only change to connected state if not in button states
-    if (currentLEDState == LED_BREATHING) {
-      setLEDState(LED_CONNECTED);
-    }
-  } else {
-    // No transmitters - go to breathing state
-    if (currentLEDState != LED_BREATHING) {
-      setLEDState(LED_BREATHING);
-    }
-  }
-  
-  // Update LED status
+  // Update LED status (simplified direct control)
   updateLED();
   
   // Remove inactive transmitters
