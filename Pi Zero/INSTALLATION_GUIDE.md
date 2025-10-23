@@ -22,7 +22,7 @@ This guide provides step-by-step instructions for installing and configuring the
 
 ```bash
 # Install WRB system
-curl -sSL https://raw.githubusercontent.com/Jallison154/TheBigWRB/Update-1.0/Pi%20Zero/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Jallison154/WRB01/main/Pi%20Zero/install.sh | bash
 ```
 
 This command will:
@@ -38,7 +38,7 @@ This command will:
 #### Method 1: Direct Download
 ```bash
 # Download and run installation script
-wget -O install.sh https://raw.githubusercontent.com/Jallison154/TheBigWRB/Update-1.0/Pi%20Zero/install.sh
+wget -O install.sh https://raw.githubusercontent.com/Jallison154/WRB01/main/Pi%20Zero/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -46,8 +46,8 @@ chmod +x install.sh
 #### Method 2: Git Clone
 ```bash
 # Clone repository and install
-git clone -b Update-1.0 https://github.com/Jallison154/TheBigWRB.git ~/TheBigWRB
-cd ~/TheBigWRB/Pi\ Zero
+git clone https://github.com/Jallison154/WRB01.git ~/WRB01
+cd ~/WRB01/Pi\ Zero
 chmod +x install.sh
 ./install.sh
 ```
@@ -83,11 +83,11 @@ mkdir -p ~/WRB/{logs,sounds,default_sounds}
 ### Step 4: Download Files
 ```bash
 # Clone repository
-git clone -b Update-1.0 https://github.com/Jallison154/TheBigWRB.git ~/TheBigWRB
+git clone https://github.com/Jallison154/WRB01.git ~/WRB01
 
 # Copy files
-cp ~/TheBigWRB/Pi\ Zero/PiScript ~/WRB/
-cp ~/TheBigWRB/Pi\ Zero/config.py ~/WRB/
+cp ~/WRB01/Pi\ Zero/PiScript ~/WRB/
+cp ~/WRB01/Pi\ Zero/config.py ~/WRB/
 chmod +x ~/WRB/PiScript
 ```
 
@@ -404,8 +404,8 @@ free -h
 ### Automatic Updates
 ```bash
 # Update from repository
-cd ~/WRB
-git pull origin Update-1.0
+cd ~/WRB01
+git pull origin main
 
 # Restart service
 sudo systemctl restart WRB-enhanced.service
@@ -414,7 +414,7 @@ sudo systemctl restart WRB-enhanced.service
 ### Manual Updates
 ```bash
 # Re-run installation script
-curl -sSL https://raw.githubusercontent.com/Jallison154/TheBigWRB/Update-1.0/Pi%20Zero/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Jallison154/WRB01/main/Pi%20Zero/install.sh | bash
 ```
 
 ## 📞 Support
