@@ -7,7 +7,7 @@
 The WRB system provides a professional wireless button solution with:
 - **Release-based triggering** (no double triggers)
 - **Hold detection** (800ms threshold)
-- **Audio feedback** with customizable sounds
+- **Audio feedback** with customizable sounds and smooth fade-out
 - **LED status indicators** for connection and activity
 - **Power management** for extended battery life
 - **One-command installation** for easy setup
@@ -145,6 +145,7 @@ Place custom sound files in `~/WRB/sounds/` with these naming conventions:
 - **Sample Rate**: 44100 Hz
 - **Channels**: Stereo (2-channel)
 - **Bit Depth**: 16-bit
+- **Fade-out**: 1-second smooth transitions when same button is pressed
 
 ## 🔒 Security Features
 
