@@ -24,7 +24,16 @@ import subprocess
 import signal
 from datetime import datetime
 from pathlib import Path
-import RPi.GPIO as GPIO
+
+# Try to import GPIO, fallback if not available
+try:
+    import RPi.GPIO as GPIO
+    GPIO_AVAILABLE = True
+except ImportError:
+    print("Warning: RPi.GPIO not available, GPIO features disabled")
+    GPIO_AVAILABLE = False
+    GPIO = None
+
 from config import *
 
 # =============================================================================
@@ -83,6 +92,10 @@ logger = setup_logging()
 
 def setup_gpio():
     """Initialize GPIO pins with PWM support"""
+    if not GPIO_AVAILABLE:
+        logger.warning("GPIO not available, LED control disabled")
+        return True
+        
     try:
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(READY_PIN, GPIO.OUT)
@@ -129,6 +142,9 @@ def setup_gpio():
 
 def set_ready_led_brightness(brightness):
     """Set ready LED brightness (0-100%)"""
+    if not GPIO_AVAILABLE:
+        return
+        
     try:
         if ready_pwm:
             ready_pwm.ChangeDutyCycle(brightness)
@@ -140,6 +156,9 @@ def set_ready_led_brightness(brightness):
 
 def set_usb_led_brightness(brightness):
     """Set USB LED brightness (0-100%)"""
+    if not GPIO_AVAILABLE:
+        return
+        
     try:
         if usb_pwm:
             usb_pwm.ChangeDutyCycle(brightness)
@@ -151,6 +170,9 @@ def set_usb_led_brightness(brightness):
 
 def flash_ready_led():
     """Flash ready LED at 100% for 200ms when audio is triggered"""
+    if not GPIO_AVAILABLE:
+        return
+        
     try:
         if ready_pwm:
             # Flash to 100% brightness
@@ -170,6 +192,9 @@ def flash_ready_led():
 
 def cleanup_gpio():
     """Clean up GPIO pins"""
+    if not GPIO_AVAILABLE:
+        return
+        
     try:
         # Stop PWM before cleanup
         if ready_pwm:
