@@ -121,8 +121,6 @@ install_dependencies() {
         "wget"
         "unzip"
         "alsa-utils"
-        "pulseaudio"
-        "pulseaudio-utils"
         "libasound2-dev"
         "portaudio19-dev"
         "python3-setuptools"
@@ -235,34 +233,8 @@ EOF
         print_info "ALSA configuration created"
     fi
     
-    # Configure PulseAudio
-    if [ ! -d "$HOME/.config/pulse" ]; then
-        mkdir -p "$HOME/.config/pulse"
-    fi
-    
-    # Create PulseAudio configuration
-    if [ ! -f "$HOME/.config/pulse/default.pa" ]; then
-        cat > "$HOME/.config/pulse/default.pa" << EOF
-#!/usr/bin/pulseaudio -nF
-load-module module-device-restore
-load-module module-stream-restore
-load-module module-card-restore
-load-module module-augment-properties
-load-module module-switch-on-port-available
-load-module module-udev-detect
-load-module module-alsa-sink
-load-module module-alsa-source device=hw:1,0
-load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-socket
-load-module module-default-device-restore
-load-module module-rescue-streams
-load-module module-always-sink
-load-module module-suspend-on-idle
-load-module module-position-event-sounds
-load-module module-filter-heuristics
-load-module module-filter-apply
-EOF
-        print_info "PulseAudio configuration created"
-    fi
+    # Configure ALSA for direct audio access
+    print_info "ALSA configuration already created above"
     
     print_success "Audio system configured"
 }
