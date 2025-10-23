@@ -7,17 +7,17 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-User=pi
+User=wrb01
 Group=audio
-WorkingDirectory=/home/pi/WRB01/Pi Zero
-Environment=HOME=/home/pi
-Environment=USER=pi
+WorkingDirectory=/home/wrb01/WRB01/Pi Zero
+Environment=HOME=/home/wrb01
+Environment=USER=wrb01
 Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=alsa
 Environment=AUDIODEV=plughw:0,0
 Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
 ExecStartPre=/bin/sleep 3
-ExecStart=/usr/bin/python3 /home/pi/WRB01/Pi\ Zero/PiScript
+ExecStart=/usr/bin/python3 /home/wrb01/WRB01/Pi\ Zero/PiScript
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=1

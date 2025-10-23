@@ -18,12 +18,14 @@ def test_system_components():
     
     # Test 1: File Structure
     print("\n1. Testing file structure...")
+    # Get current user's home directory
+    home_dir = os.path.expanduser("~")
     required_files = [
-        "/home/pi/WRB01/Pi Zero/PiScript",
-        "/home/pi/WRB01/Pi Zero/config.py",
-        "/home/pi/WRB01/Pi Zero/WRB-enhanced.service",
-        "/home/pi/WRB01/Pi Zero/test_pwm.py",
-        "/home/pi/WRB01/Pi Zero/startup_test.py"
+        f"{home_dir}/WRB01/Pi Zero/PiScript",
+        f"{home_dir}/WRB01/Pi Zero/config.py",
+        f"{home_dir}/WRB01/Pi Zero/WRB-enhanced.service",
+        f"{home_dir}/WRB01/Pi Zero/test_pwm.py",
+        f"{home_dir}/WRB01/Pi Zero/startup_test.py"
     ]
     
     for file_path in required_files:
@@ -40,9 +42,9 @@ def test_system_components():
     # Test 2: Directory Structure
     print("\n2. Testing directory structure...")
     required_dirs = [
-        "/home/pi/WRB01/Pi Zero/logs",
-        "/home/pi/WRB01/Pi Zero/sounds",
-        "/home/pi/WRB01/Pi Zero/default_sounds"
+        f"{home_dir}/WRB01/Pi Zero/logs",
+        f"{home_dir}/WRB01/Pi Zero/sounds",
+        f"{home_dir}/WRB01/Pi Zero/default_sounds"
     ]
     
     for dir_path in required_dirs:
