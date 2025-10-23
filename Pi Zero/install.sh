@@ -29,10 +29,10 @@ SERVICE_NAME="WRB-enhanced.service"
 SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
 
 # Repository information
-REPO_URL="https://github.com/Jallison154/TheBigWRB.git"
-BRANCH_UPDATE="Update-1.0"
+REPO_URL="https://github.com/Jallison154/WRB01.git"
+BRANCH_UPDATE="WRB01"
 BRANCH_MAIN="main"
-REPO_DIR="$HOME/TheBigWRB"
+REPO_DIR="$HOME/WRB01"
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -160,12 +160,12 @@ clone_repository() {
         rm -rf "$REPO_DIR"
     fi
     
-    # Try to clone Update-1.0 branch first
-    print_info "Attempting to clone Update-1.0 branch..."
+    # Try to clone WRB01 branch first
+    print_info "Attempting to clone WRB01 branch..."
     if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
-        print_success "Successfully cloned Update-1.0 branch"
+        print_success "Successfully cloned WRB01 branch"
     else
-        print_warning "Update-1.0 branch not available, trying main branch..."
+        print_warning "WRB01 branch not available, trying main branch..."
         if git clone -b "$BRANCH_MAIN" "$REPO_URL" "$REPO_DIR" 2>/dev/null; then
             print_success "Successfully cloned main branch"
         else
