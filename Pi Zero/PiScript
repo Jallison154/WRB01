@@ -375,49 +375,108 @@ def play_sound(sound_type):
 # =============================================================================
 
 def find_usb_drives():
-    """Find mounted USB drives"""
+    """Find mounted USB drives - improved detection"""
     usb_paths = []
     try:
-        # Common USB mount points
-        mount_points = [
-            "/media/*/",
-            "/mnt/usb*",
-            "/media/usb*"
-        ]
+        # Check /proc/mounts for actual mounted devices
+        try:
+            with open('/proc/mounts', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        mount_point = parts[1]
+                        device = parts[0]
+                        # Check if it's a USB device (common patterns)
+                        if (device.startswith('/dev/sd') and 
+                            mount_point.startswith('/media/') and
+                            os.path.isdir(mount_point) and 
+                            os.access(mount_point, os.R_OK)):
+                            usb_paths.append(mount_point)
+        except Exception as e:
+            logger.warning(f"Could not read /proc/mounts: {e}")
         
-        for pattern in mount_points:
-            for path in glob.glob(pattern):
-                if os.path.isdir(path) and os.access(path, os.R_OK):
-                    usb_paths.append(path)
+        # Fallback to glob patterns if /proc/mounts fails
+        if not usb_paths:
+            mount_points = [
+                "/media/*/",
+                "/mnt/usb*",
+                "/media/usb*"
+            ]
+            
+            for pattern in mount_points:
+                for path in glob.glob(pattern):
+                    if os.path.isdir(path) and os.access(path, os.R_OK):
+                        usb_paths.append(path)
         
         if usb_paths:
             logger.info(f"Found USB drives: {usb_paths}")
         else:
-            logger.info("No USB drives found")
+            logger.debug("No USB drives found")
             
     except Exception as e:
         logger.error(f"Error finding USB drives: {e}")
     
     return usb_paths
 
+def test_usb_detection():
+    """Test USB detection and LED functionality"""
+    logger.info("=== USB Detection Test ===")
+    
+    # Test GPIO LED
+    try:
+        logger.info("Testing USB LED (GPIO 24)...")
+        GPIO.output(USB_LED_PIN, GPIO.HIGH)
+        logger.info("USB LED should be ON")
+        time.sleep(2)
+        GPIO.output(USB_LED_PIN, GPIO.LOW)
+        logger.info("USB LED should be OFF")
+    except Exception as e:
+        logger.error(f"LED test failed: {e}")
+    
+    # Test USB detection
+    usb_drives = find_usb_drives()
+    logger.info(f"Detected USB drives: {usb_drives}")
+    
+    # Test mount points
+    logger.info("Checking common mount points:")
+    mount_points = ["/media/", "/mnt/"]
+    for mp in mount_points:
+        if os.path.exists(mp):
+            contents = os.listdir(mp)
+            logger.info(f"  {mp}: {contents}")
+        else:
+            logger.info(f"  {mp}: does not exist")
+
 def update_usb_status():
-    """Update USB drive status and LED"""
+    """Update USB drive status and LED - improved with debouncing"""
     global usb_drive_mounted
     
-    usb_drives = find_usb_drives()
-    new_status = len(usb_drives) > 0
-    
-    if new_status != usb_drive_mounted:
-        usb_drive_mounted = new_status
-        GPIO.output(USB_LED_PIN, GPIO.HIGH if usb_drive_mounted else GPIO.LOW)
+    try:
+        usb_drives = find_usb_drives()
+        new_status = len(usb_drives) > 0
         
-        if usb_drive_mounted:
-            logger.info("USB drive detected, reloading sounds")
-            logger.info(f"USB LED (GPIO {USB_LED_PIN}) should be ON")
-            find_sound_files()
-        else:
-            logger.info("USB drive removed")
-            logger.info(f"USB LED (GPIO {USB_LED_PIN}) should be OFF")
+        if new_status != usb_drive_mounted:
+            usb_drive_mounted = new_status
+            
+            # Update LED immediately
+            GPIO.output(USB_LED_PIN, GPIO.HIGH if usb_drive_mounted else GPIO.LOW)
+            
+            if usb_drive_mounted:
+                logger.info("USB drive detected, reloading sounds")
+                logger.info(f"USB LED (GPIO {USB_LED_PIN}) should be ON")
+                logger.info(f"USB paths: {usb_drives}")
+                find_sound_files()
+            else:
+                logger.info("USB drive removed")
+                logger.info(f"USB LED (GPIO {USB_LED_PIN}) should be OFF")
+                
+    except Exception as e:
+        logger.error(f"Error updating USB status: {e}")
+        # Ensure LED is off on error
+        try:
+            GPIO.output(USB_LED_PIN, GPIO.LOW)
+        except:
+            pass
 
 # =============================================================================
 # SERIAL COMMUNICATION
@@ -471,31 +530,38 @@ def setup_serial():
         return None
 
 def process_serial_message(message):
-    """Process incoming serial message from ESP32"""
+    """Process incoming serial message from ESP32 - improved hold logic"""
     global last_button_time
     
     message = message.strip()
     current_time = time.time()
     
-    # Debounce button presses
+    # Process hold messages first (higher priority)
+    if message == "HOLD1":
+        logger.info("Button 1 hold")
+        play_sound('hold1')
+        last_button_time = current_time  # Update debounce time
+        return
+    elif message == "HOLD2":
+        logger.info("Button 2 hold")
+        play_sound('hold2')
+        last_button_time = current_time  # Update debounce time
+        return
+    
+    # Debounce button presses (only for BTN messages)
     if current_time - last_button_time < BUTTON_DEBOUNCE_TIME:
+        logger.debug(f"Ignoring {message} due to debounce")
         return
     
     last_button_time = current_time
     
-    # Process button messages
+    # Process button press messages
     if message == "BTN1":
         logger.info("Button 1 pressed")
         play_sound('button1')
     elif message == "BTN2":
         logger.info("Button 2 pressed")
         play_sound('button2')
-    elif message == "HOLD1":
-        logger.info("Button 1 hold")
-        play_sound('hold1')
-    elif message == "HOLD2":
-        logger.info("Button 2 hold")
-        play_sound('hold2')
     else:
         logger.debug(f"Unknown message: {message}")
 
@@ -601,6 +667,9 @@ def main():
         logger.error("Audio setup failed, exiting")
         cleanup_gpio()
         return 1
+    
+    # Test USB detection and LED functionality
+    test_usb_detection()
     
     # Load sound files
     find_sound_files()
