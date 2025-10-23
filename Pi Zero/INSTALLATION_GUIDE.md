@@ -109,12 +109,14 @@ EOF
 
 ### Step 6: Create Service
 ```bash
-# Create systemd service file
+# Create systemd service file with improved audio configuration
 sudo tee /etc/systemd/system/WRB-enhanced.service > /dev/null << EOF
 [Unit]
 Description=WRB Enhanced Audio System
 After=network.target sound.target
 Wants=network.target sound.target
+StartLimitInterval=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -123,9 +125,20 @@ Group=audio
 WorkingDirectory=$HOME/WRB
 Environment=HOME=$HOME
 Environment=USER=$USER
+Environment=WRB_SERIAL=/dev/ttyACM0
+Environment=SDL_AUDIODRIVER=alsa
+Environment=AUDIODEV=plughw:0,0
+Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
+ExecStartPre=/bin/sleep 15
+ExecStartPre=/bin/bash -c 'pulseaudio --start || true'
 ExecStart=/usr/bin/python3 $HOME/WRB/PiScript
 Restart=on-failure
-RestartSec=10
+RestartSec=15
+RestartPreventExitStatus=1
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=60
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -224,6 +237,12 @@ The system comes with default test sounds. To use custom sounds:
 ### Local Sound Files
 Place custom sounds in `~/WRB/sounds/` directory.
 
+### Audio Features
+- **Fade-out support**: Same button pressed again fades out current sound over 1 second
+- **Multi-channel audio**: Up to 4 simultaneous sounds
+- **Smooth transitions**: No audio glitches when switching sounds
+- **Automatic cleanup**: Finished sounds are automatically cleaned up
+
 ## 🔧 Configuration
 
 ### System Configuration
@@ -317,6 +336,26 @@ pactl info
 
 # Test with simple sound
 speaker-test -t wav -c 2
+
+# Check ALSA configuration
+cat ~/.asoundrc
+
+# Test ALSA directly
+aplay /usr/share/sounds/alsa/Front_Left.wav
+```
+
+#### PulseAudio Issues
+```bash
+# Check PulseAudio status
+pulseaudio --check -v
+
+# Restart PulseAudio
+pulseaudio --kill
+pulseaudio --start
+
+# Check audio environment
+echo $SDL_AUDIODRIVER
+echo $AUDIODEV
 ```
 
 #### ESP32 Not Connecting
