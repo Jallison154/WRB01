@@ -328,26 +328,71 @@ copy_files() {
         exit 1
     fi
     
-    # Copy main files
-    cp "$REPO_DIR/Pi Zero/PiScript" "$WRB_HOME/"
-    cp "$REPO_DIR/Pi Zero/config.py" "$WRB_HOME/"
+    # Find the Pi Zero directory in the repository
+    PI_ZERO_DIR=""
+    if [ -d "$REPO_DIR/Pi Zero" ]; then
+        PI_ZERO_DIR="$REPO_DIR/Pi Zero"
+    elif [ -d "$REPO_DIR/Pi\ Zero" ]; then
+        PI_ZERO_DIR="$REPO_DIR/Pi\ Zero"
+    elif [ -d "$REPO_DIR/PiZero" ]; then
+        PI_ZERO_DIR="$REPO_DIR/PiZero"
+    else
+        # Search for PiScript in the repository
+        PI_ZERO_DIR=$(find "$REPO_DIR" -name "PiScript" -type f | head -1 | xargs dirname)
+        if [ -z "$PI_ZERO_DIR" ]; then
+            print_error "Could not find Pi Zero directory or PiScript in repository"
+            print_info "Repository contents:"
+            ls -la "$REPO_DIR"
+            exit 1
+        fi
+        print_info "Found PiScript in: $PI_ZERO_DIR"
+    fi
+    
+    print_info "Using source directory: $PI_ZERO_DIR"
+    
+    # Copy main files with error checking
+    if [ -f "$PI_ZERO_DIR/PiScript" ]; then
+        cp "$PI_ZERO_DIR/PiScript" "$WRB_HOME/"
+        print_info "PiScript copied"
+    else
+        print_error "PiScript not found in $PI_ZERO_DIR"
+        exit 1
+    fi
+    
+    if [ -f "$PI_ZERO_DIR/config.py" ]; then
+        cp "$PI_ZERO_DIR/config.py" "$WRB_HOME/"
+        print_info "config.py copied"
+    else
+        print_warning "config.py not found in $PI_ZERO_DIR"
+    fi
     
     # Copy new audio testing and setup files
-    if [ -f "$REPO_DIR/Pi Zero/test_audio.py" ]; then
-        cp "$REPO_DIR/Pi Zero/test_audio.py" "$WRB_HOME/"
+    if [ -f "$PI_ZERO_DIR/test_audio.py" ]; then
+        cp "$PI_ZERO_DIR/test_audio.py" "$WRB_HOME/"
         print_info "Audio test script copied"
     fi
     
-    if [ -f "$REPO_DIR/Pi Zero/setup_audio.sh" ]; then
-        cp "$REPO_DIR/Pi Zero/setup_audio.sh" "$WRB_HOME/"
+    if [ -f "$PI_ZERO_DIR/setup_audio.sh" ]; then
+        cp "$PI_ZERO_DIR/setup_audio.sh" "$WRB_HOME/"
         chmod +x "$WRB_HOME/setup_audio.sh"
         print_info "Audio setup script copied"
     fi
     
-    # Copy default sounds if they exist
-    if [ -d "$REPO_DIR/Pi Zero/Default Sounds" ]; then
-        cp -r "$REPO_DIR/Pi Zero/Default Sounds"/* "$WRB_DEFAULT_SOUNDS/"
+    # Copy default sounds if they exist (try different directory names)
+    DEFAULT_SOUNDS_SOURCE=""
+    for sounds_dir in "Default Sounds" "Default_Sounds" "default_sounds" "sounds"; do
+        if [ -d "$PI_ZERO_DIR/$sounds_dir" ]; then
+            DEFAULT_SOUNDS_SOURCE="$PI_ZERO_DIR/$sounds_dir"
+            print_info "Found default sounds in: $sounds_dir"
+            break
+        fi
+    done
+    
+    if [ -n "$DEFAULT_SOUNDS_SOURCE" ]; then
+        cp -r "$DEFAULT_SOUNDS_SOURCE"/* "$WRB_DEFAULT_SOUNDS/" 2>/dev/null || true
         print_info "Default sounds copied"
+    else
+        print_warning "No default sounds directory found"
     fi
     
     # Create sounds directory and link default sounds
@@ -367,6 +412,12 @@ copy_files() {
     
     # Make scripts executable
     chmod +x "$WRB_HOME/PiScript"
+    
+    # Verify critical files exist
+    if [ ! -f "$WRB_HOME/PiScript" ]; then
+        print_error "PiScript was not copied successfully"
+        exit 1
+    fi
     
     print_success "Files copied and sounds linked successfully"
 }
@@ -502,10 +553,37 @@ test_audio_system() {
 copy_default_sounds() {
     print_step "Copying default sound files..."
     
-    # Copy existing default sound files from repository
-    if [ -d "$REPO_DIR/Pi Zero/Default Sounds" ]; then
+    # Find the Pi Zero directory in the repository (same logic as copy_files)
+    PI_ZERO_DIR=""
+    if [ -d "$REPO_DIR/Pi Zero" ]; then
+        PI_ZERO_DIR="$REPO_DIR/Pi Zero"
+    elif [ -d "$REPO_DIR/Pi\ Zero" ]; then
+        PI_ZERO_DIR="$REPO_DIR/Pi\ Zero"
+    elif [ -d "$REPO_DIR/PiZero" ]; then
+        PI_ZERO_DIR="$REPO_DIR/PiZero"
+    else
+        # Search for PiScript in the repository
+        PI_ZERO_DIR=$(find "$REPO_DIR" -name "PiScript" -type f | head -1 | xargs dirname)
+    fi
+    
+    if [ -z "$PI_ZERO_DIR" ]; then
+        print_warning "Could not find Pi Zero directory for default sounds"
+        return 1
+    fi
+    
+    # Try different directory names for default sounds
+    DEFAULT_SOUNDS_SOURCE=""
+    for sounds_dir in "Default Sounds" "Default_Sounds" "default_sounds" "sounds"; do
+        if [ -d "$PI_ZERO_DIR/$sounds_dir" ]; then
+            DEFAULT_SOUNDS_SOURCE="$PI_ZERO_DIR/$sounds_dir"
+            print_info "Found default sounds in: $sounds_dir"
+            break
+        fi
+    done
+    
+    if [ -n "$DEFAULT_SOUNDS_SOURCE" ]; then
         print_info "Copying default sounds from repository..."
-        cp -r "$REPO_DIR/Pi Zero/Default Sounds"/* "$WRB_DEFAULT_SOUNDS/"
+        cp -r "$DEFAULT_SOUNDS_SOURCE"/* "$WRB_DEFAULT_SOUNDS/" 2>/dev/null || true
         print_success "Default sound files copied successfully"
         
         # List copied files
@@ -1188,6 +1266,29 @@ main_installation() {
     
     # Cleanup
     cleanup_installation
+    
+    # Final verification
+    print_step "Performing final verification..."
+    
+    # Check critical files
+    if [ ! -f "$WRB_HOME/PiScript" ]; then
+        print_error "CRITICAL: PiScript not found after installation"
+        print_info "Installation directory contents:"
+        ls -la "$WRB_HOME"
+        exit 1
+    fi
+    
+    if [ ! -f "$WRB_HOME/config.py" ]; then
+        print_warning "config.py not found - this may cause issues"
+    fi
+    
+    # Check service file
+    if [ ! -f "$SERVICE_FILE" ]; then
+        print_error "Service file not created"
+        exit 1
+    fi
+    
+    print_success "Critical files verified"
     
     # Verification
     if verify_installation; then
