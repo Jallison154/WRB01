@@ -449,8 +449,10 @@ RESCAN_SEC = 1.0
 IDLE_SHUTOFF_SEC = 0   # Keep mixer always active for instant response
 
 # --- LED (simple on/off, active-low wiring) ---
-from gpiozero import LED
+from gpiozero import LED, PWMLED
 led = LED(READY_PIN, active_high=(not READY_ACTIVE_LOW))
+# Status LED on pin 23 at 25% brightness
+status_led = PWMLED(23)
 
 def usb_mount_dirs():
     base = "/media"
@@ -598,6 +600,14 @@ def play_button1():
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
     
+    # Flash status LED for 200ms
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
+    
     # If already playing, fade it out over 1 second
     if 'button1' in _current_sounds:
         print("[wrb] BUTTON1 fading out current sound", flush=True)
@@ -609,6 +619,8 @@ def play_button1():
     import pygame
     s = pygame.mixer.Sound(_button1_paths[0])
     channel = pygame.mixer.Channel(0)
+    # Reset channel volume to full before playing
+    channel.set_volume(1.0)
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -621,6 +633,14 @@ def play_button2():
         print("[wrb] BUTTON2 (no file)", flush=True)
         return
     
+    # Flash status LED for 200ms
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
+    
     # If already playing, fade it out over 1 second
     if 'button2' in _current_sounds:
         print("[wrb] BUTTON2 fading out current sound", flush=True)
@@ -632,6 +652,8 @@ def play_button2():
     import pygame
     s = pygame.mixer.Sound(_button2_paths[0])
     channel = pygame.mixer.Channel(1)
+    # Reset channel volume to full before playing
+    channel.set_volume(1.0)
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -644,6 +666,14 @@ def play_hold1():
         print("[wrb] HOLD1 (no file)", flush=True)
         return
     
+    # Flash status LED for 200ms
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
+    
     # If already playing, fade it out over 1 second
     if 'hold1' in _current_sounds:
         print("[wrb] HOLD1 fading out current sound", flush=True)
@@ -655,6 +685,8 @@ def play_hold1():
     import pygame
     s = pygame.mixer.Sound(_hold1_paths[0])
     channel = pygame.mixer.Channel(2)
+    # Reset channel volume to full before playing
+    channel.set_volume(1.0)
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -667,6 +699,14 @@ def play_hold2():
         print("[wrb] HOLD2 (no file)", flush=True)
         return
     
+    # Flash status LED for 200ms
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
+    
     # If already playing, fade it out over 1 second
     if 'hold2' in _current_sounds:
         print("[wrb] HOLD2 fading out current sound", flush=True)
@@ -678,6 +718,8 @@ def play_hold2():
     import pygame
     s = pygame.mixer.Sound(_hold2_paths[0])
     channel = pygame.mixer.Channel(3)
+    # Reset channel volume to full before playing
+    channel.set_volume(1.0)
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -701,6 +743,10 @@ def main():
     # Initialize mixer immediately for instant response
     print("[wrb] initializing audio mixer...", flush=True)
     ensure_mixer()
+
+    # Turn on status LED to show service is running
+    status_led.value = 0.25  # 25% brightness
+    print("[wrb] Status LED ON (25% brightness) - Service running", flush=True)
 
     # source scan + initial paths
     tag, btn1, btn2, h1, h2 = pick_source()
