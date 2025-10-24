@@ -21,23 +21,32 @@ This guide provides step-by-step instructions for installing and configuring the
 ### One-Command Installation (Recommended)
 
 ```bash
-# Clone repository and run manual installation
+# Clone repository and run installation
 git clone https://github.com/Jallison154/WRB01.git ~/WRB01
 cd ~/WRB01/Pi\ Zero
 chmod +x install.sh
 ./install.sh
 ```
 
-This command will:
-- Clone the WRB01 repository
-- Navigate to the Pi Zero directory
-- Run the installation script
-- Update your system packages
-- Install all required dependencies
-- Download and configure the WRB system
-- Set up the systemd service
-- Create default sound files
-- Enable automatic startup
+**OR for offline installation (if you have network issues):**
+```bash
+# Copy the Pi Zero folder to your Pi, then:
+cd /path/to/Pi\ Zero
+chmod +x install.sh
+./install.sh --skip-repo
+```
+
+This command will automatically:
+- ✅ Create `wrb01` user and set up home directory
+- ✅ Update system packages and install all dependencies
+- ✅ Handle 2024 Python environment issues
+- ✅ Clone repository (or use local files with `--skip-repo`)
+- ✅ Copy all files to `/home/wrb01/WRB/`
+- ✅ Set up audio system (PulseAudio + ALSA)
+- ✅ Create and enable systemd service
+- ✅ Start the service immediately
+- ✅ Set up monitoring and watchdog services
+- ✅ Configure automatic startup on boot
 
 ### Alternative Installation Methods
 
@@ -55,71 +64,87 @@ Follow the manual installation steps below for complete control over the process
 
 ## 🔧 Manual Installation
 
-If you prefer to install manually or need to troubleshoot:
+**Note:** The automated install script handles all of this automatically. Only use manual installation for troubleshooting or if you need custom configuration.
 
-### Step 1: System Update
+### Step 1: Create User and Directories
 ```bash
-sudo apt update
-sudo apt upgrade -y
+# Create wrb01 user
+sudo useradd -m -s /bin/bash wrb01
+sudo usermod -a -G audio,gpio,dialout,spi,i2c wrb01
+
+# Create directories
+sudo mkdir -p /home/wrb01/WRB/{logs,sounds,default_sounds}
+sudo chown -R wrb01:wrb01 /home/wrb01
 ```
 
-### Step 2: Install Dependencies
+### Step 2: System Update and Dependencies
 ```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
 # Install essential packages
 sudo apt install -y python3 python3-pip python3-dev python3-pygame python3-serial python3-numpy git curl wget unzip
 
 # Install audio packages
-sudo apt install -y alsa-utils pulseaudio pulseaudio-utils libasound2-dev portaudio19-dev
+sudo apt install -y alsa-utils pulseaudio pulseaudio-utils libasound2-dev portaudio19-dev sox libsox-fmt-all
 
-# Install Python packages
-pip3 install --user pygame pyserial numpy RPi.GPIO
+# Install Python packages (2024 method)
+pip3 install --user --break-system-packages pygame pyserial numpy RPi.GPIO psutil
 ```
 
-### Step 3: Create Directories
-```bash
-# Create WRB directories
-mkdir -p ~/WRB/{logs,sounds,default_sounds}
-```
-
-### Step 4: Download Files
+### Step 3: Download and Copy Files
 ```bash
 # Clone repository
-git clone https://github.com/Jallison154/WRB01.git ~/WRB01
+git clone https://github.com/Jallison154/WRB01.git /home/wrb01/WRB01
 
 # Copy files to WRB directory
-cp ~/WRB01/Pi\ Zero/PiScript ~/WRB/
-cp ~/WRB01/Pi\ Zero/config.py ~/WRB/
-cp ~/WRB01/Pi\ Zero/test_system.py ~/WRB/
-cp ~/WRB01/Pi\ Zero/monitor_system.py ~/WRB/
-cp ~/WRB01/Pi\ Zero/remote_diagnostics.py ~/WRB/
-cp ~/WRB01/Pi\ Zero/diagnose_system.sh ~/WRB/
-chmod +x ~/WRB/PiScript
-chmod +x ~/WRB/diagnose_system.sh
+cp /home/wrb01/WRB01/Pi\ Zero/PiScript /home/wrb01/WRB/
+cp /home/wrb01/WRB01/Pi\ Zero/config.py /home/wrb01/WRB/
+cp -r /home/wrb01/WRB01/Pi\ Zero/Default\ Sounds/* /home/wrb01/WRB/default_sounds/
 
-# Copy default sounds
-cp -r ~/WRB01/Pi\ Zero/Default\ Sounds/* ~/WRB/default_sounds/
+# Set permissions
+chmod +x /home/wrb01/WRB/PiScript
+sudo chown -R wrb01:wrb01 /home/wrb01/WRB
 ```
 
-### Step 5: Setup Audio System
+### Step 4: Setup Audio System
 ```bash
-# Add user to audio group
-sudo usermod -a -G audio $USER
+# Configure PulseAudio
+mkdir -p /home/wrb01/.config/pulse
+cat > /home/wrb01/.config/pulse/daemon.conf << EOF
+default-sample-rate = 44100
+default-sample-format = s16le
+default-sample-channels = 2
+EOF
 
 # Configure ALSA
-cat > ~/.asoundrc << EOF
-pcm.!default {
-    type pulse
-}
-ctl.!default {
-    type pulse
-}
+sudo tee /etc/asound.conf > /dev/null << EOF
+pcm.!default { type pulse }
+ctl.!default { type pulse }
 EOF
 ```
 
-### Step 6: Create Service
+### Step 5: Create and Start Service
 ```bash
-# Copy service file from repository
-sudo cp ~/WRB01/Pi\ Zero/WRB-enhanced.service /etc/systemd/system/
+# Create service file
+sudo tee /etc/systemd/system/WRB-enhanced.service > /dev/null << EOF
+[Unit]
+Description=WRB Enhanced Audio System
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=wrb01
+Group=audio
+WorkingDirectory=/home/wrb01/WRB
+ExecStart=/usr/bin/python3 /home/wrb01/WRB/PiScript
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # Enable and start service
 sudo systemctl daemon-reload
@@ -284,10 +309,16 @@ python3 ~/WRB/monitor_system.py status
 # Check internet connection
 ping google.com
 
-# Update system first
-sudo apt update && sudo apt upgrade -y
+# Try offline installation if network issues
+cd /path/to/Pi\ Zero
+./install.sh --skip-repo
 
-# Try manual installation steps
+# Check for specific errors
+sudo journalctl -u WRB-enhanced.service -f
+
+# Verify user and directory setup
+id wrb01
+ls -la /home/wrb01/WRB/
 ```
 
 #### Service Won't Start
