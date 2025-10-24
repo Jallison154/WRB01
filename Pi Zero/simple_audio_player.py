@@ -187,8 +187,7 @@ def play_button1():
             # Sound is still active, fade it out
             print("[wrb] BUTTON1 fading out current sound", flush=True)
             fade_out_sound('button1')
-            # Wait a moment for fade to start, then play new sound
-            time.sleep(0.1)
+            return  # Just fade out, don't play new sound
         else:
             # Sound has finished, remove from tracking
             print("[wrb] BUTTON1 sound finished, removing from tracking", flush=True)
@@ -232,8 +231,7 @@ def play_button2():
             # Sound is still active, fade it out
             print("[wrb] BUTTON2 fading out current sound", flush=True)
             fade_out_sound('button2')
-            # Wait a moment for fade to start, then play new sound
-            time.sleep(0.1)
+            return  # Just fade out, don't play new sound
         else:
             # Sound has finished, remove from tracking
             print("[wrb] BUTTON2 sound finished, removing from tracking", flush=True)
@@ -277,8 +275,7 @@ def play_hold1():
             # Sound is still active, fade it out
             print("[wrb] HOLD1 fading out current sound", flush=True)
             fade_out_sound('hold1')
-            # Wait a moment for fade to start, then play new sound
-            time.sleep(0.1)
+            return  # Just fade out, don't play new sound
         else:
             # Sound has finished, remove from tracking
             print("[wrb] HOLD1 sound finished, removing from tracking", flush=True)
@@ -322,8 +319,7 @@ def play_hold2():
             # Sound is still active, fade it out
             print("[wrb] HOLD2 fading out current sound", flush=True)
             fade_out_sound('hold2')
-            # Wait a moment for fade to start, then play new sound
-            time.sleep(0.1)
+            return  # Just fade out, don't play new sound
         else:
             # Sound has finished, remove from tracking
             print("[wrb] HOLD2 sound finished, removing from tracking", flush=True)
