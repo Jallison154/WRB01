@@ -297,7 +297,7 @@ READY_ACTIVE_LOW = True
 MIX_FREQ = 44100
 MIX_BUF = 256
 RESCAN_SEC = 1.0
-IDLE_SHUTOFF_SEC = 5.0   # close audio device this long after last cue (increased for faster response)
+IDLE_SHUTOFF_SEC = 0   # Keep mixer always active for instant response
 
 # --- LED (simple on/off, active-low wiring) ---
 from gpiozero import LED
@@ -377,12 +377,9 @@ def ensure_mixer():
 
 def shutdown_mixer_if_idle():
     global _mixer_ready
-    if not _mixer_ready: return
-    import pygame
-    if (time.time() - _last_play) > IDLE_SHUTOFF_SEC and not pygame.mixer.get_busy():
-        pygame.mixer.quit()
-        _mixer_ready = False
-        print("[wrb] audio: mixer closed (idle)", flush=True)
+    # Keep mixer always active for instant response
+    # No shutdown logic - mixer stays ready
+    pass
 
 def play_button1():
     global _last_play
@@ -442,7 +439,11 @@ def wait_serial():
 def main():
     led.off()  # OFF until ready
 
-    # source scan + initial paths (no mixer init yet)
+    # Initialize mixer immediately for instant response
+    print("[wrb] initializing audio mixer...", flush=True)
+    ensure_mixer()
+
+    # source scan + initial paths
     tag, btn1, btn2, h1, h2 = pick_source()
     set_paths(btn1, btn2, h1, h2)
     print(f"[wrb] source={tag} btn1={btn1} btn2={btn2} hold1={h1} hold2={h2}", flush=True)
@@ -451,7 +452,7 @@ def main():
     print(f"[wrb] serial: {ser.port}", flush=True)
 
     led.on()
-    print("[wrb] READY", flush=True)
+    print("[wrb] READY - Audio mixer active", flush=True)
     last_scan = time.time()
 
     while True:
@@ -471,7 +472,6 @@ def main():
             time.sleep(0.05)
             continue
         if not line:
-            shutdown_mixer_if_idle()
             continue
 
         t = classify(line)
@@ -511,8 +511,6 @@ def main():
                 led.on()
             except:
                 pass
-
-        shutdown_mixer_if_idle()
 
 if __name__ == "__main__":
     main()
