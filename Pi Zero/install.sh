@@ -82,6 +82,7 @@ setup_user_environment() {
     print_step "Setting up user environment..."
     
     # Check if we're running as the correct user
+    print_info "Current user: $USER"
     if [ "$USER" != "wrb01" ] && [ "$USER" != "pi" ]; then
         print_warning "Running as user: $USER"
         print_info "This script is designed for 'wrb01' or 'pi' user"
@@ -411,10 +412,18 @@ create_directories() {
 copy_files() {
     print_step "Copying WRB files..."
     
+    # Debug information
+    print_info "WRB_HOME: $WRB_HOME"
+    print_info "Current user: $USER"
+    print_info "Current directory: $(pwd)"
+    
     # Ensure WRB_HOME exists before copying
     if [ ! -d "$WRB_HOME" ]; then
         print_error "WRB home directory does not exist: $WRB_HOME"
-        exit 1
+        print_info "Creating WRB_HOME directory..."
+        sudo mkdir -p "$WRB_HOME"
+        sudo chown -R wrb01:wrb01 "$WRB_HOME"
+        sudo chmod 755 "$WRB_HOME"
     fi
     
     # Find the Pi Zero directory in the repository
@@ -446,7 +455,7 @@ copy_files() {
     
     # Copy main files with error checking
     if [ -f "$PI_ZERO_DIR/PiScript" ]; then
-        cp "$PI_ZERO_DIR/PiScript" "$WRB_HOME/"
+        sudo cp "$PI_ZERO_DIR/PiScript" "$WRB_HOME/"
         print_info "PiScript copied"
     else
         print_error "PiScript not found in $PI_ZERO_DIR"
@@ -456,7 +465,7 @@ copy_files() {
     fi
     
     if [ -f "$PI_ZERO_DIR/config.py" ]; then
-        cp "$PI_ZERO_DIR/config.py" "$WRB_HOME/"
+        sudo cp "$PI_ZERO_DIR/config.py" "$WRB_HOME/"
         print_info "config.py copied"
     else
         print_warning "config.py not found in $PI_ZERO_DIR"
@@ -464,12 +473,12 @@ copy_files() {
     
     # Copy new audio testing and setup files
     if [ -f "$PI_ZERO_DIR/test_audio.py" ]; then
-        cp "$PI_ZERO_DIR/test_audio.py" "$WRB_HOME/"
+        sudo cp "$PI_ZERO_DIR/test_audio.py" "$WRB_HOME/"
         print_info "Audio test script copied"
     fi
     
     if [ -f "$PI_ZERO_DIR/setup_audio.sh" ]; then
-        cp "$PI_ZERO_DIR/setup_audio.sh" "$WRB_HOME/"
+        sudo cp "$PI_ZERO_DIR/setup_audio.sh" "$WRB_HOME/"
         chmod +x "$WRB_HOME/setup_audio.sh"
         print_info "Audio setup script copied"
     fi
@@ -894,7 +903,7 @@ from pathlib import Path
 
 class WRBHealthMonitor:
     def __init__(self):
-        self.wrb_home = os.path.expanduser("~/WRB")
+        self.wrb_home = "/home/wrb01/WRB"
         self.log_file = f"{self.wrb_home}/logs/health_monitor.log"
         self.status_file = f"{self.wrb_home}/logs/system_status.json"
         self.alert_file = f"{self.wrb_home}/logs/alerts.log"
@@ -1368,11 +1377,11 @@ main_installation() {
     
     # Copy the 2024 fix script (if it exists)
     if [ -f "fix_python_2024.sh" ]; then
-        cp "fix_python_2024.sh" "$WRB_HOME/"
+        sudo cp "fix_python_2024.sh" "$WRB_HOME/"
         chmod +x "$WRB_HOME/fix_python_2024.sh"
         print_info "2024 Python fix script copied"
     elif [ -f "$REPO_DIR/Pi Zero/fix_python_2024.sh" ]; then
-        cp "$REPO_DIR/Pi Zero/fix_python_2024.sh" "$WRB_HOME/"
+        sudo cp "$REPO_DIR/Pi Zero/fix_python_2024.sh" "$WRB_HOME/"
         chmod +x "$WRB_HOME/fix_python_2024.sh"
         print_info "2024 Python fix script copied"
     fi
