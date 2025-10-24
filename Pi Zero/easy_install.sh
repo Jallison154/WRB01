@@ -169,16 +169,44 @@ sudo mkdir -p /home/wrb01/audio
 sudo chown wrb01:wrb01 /home/wrb01/audio
 print_success "Fresh audio directory created"
 
-# Configure USB audio interface as default
-print_step "Configuring USB audio interface as default..."
-sudo tee /etc/asound.conf > /dev/null << EOF
-# USB Audio Configuration - USB as default
+# Configure robust USB audio interface
+print_step "Configuring robust USB audio interface..."
+echo "Detecting available audio devices..."
+aplay -l 2>/dev/null || echo "No audio devices found"
+
+# Check if USB audio is available
+USB_AUDIO_AVAILABLE=false
+if aplay -D plughw:1,0 /usr/share/sounds/alsa/Front_Left.wav 2>/dev/null; then
+    USB_AUDIO_AVAILABLE=true
+    print_success "✓ USB audio (card 1) detected and working"
+else
+    print_warning "⚠ USB audio (card 1) not available, will use built-in audio"
+fi
+
+# Create appropriate ALSA configuration
+if [ "$USB_AUDIO_AVAILABLE" = true ]; then
+    print_info "Configuring USB audio as primary with built-in fallback..."
+    sudo tee /etc/asound.conf > /dev/null << EOF
+# WRB01 Audio Configuration - USB Primary, Built-in Fallback
 pcm.!default {
     type hw
     card 1
     device 0
 }
+
 ctl.!default {
+    type hw
+    card 1
+}
+
+# USB audio device
+pcm.usb {
+    type hw
+    card 1
+    device 0
+}
+
+ctl.usb {
     type hw
     card 1
 }
@@ -189,12 +217,42 @@ pcm.builtin {
     card 0
     device 0
 }
+
 ctl.builtin {
     type hw
     card 0
 }
 EOF
-print_success "USB audio configured as default"
+    print_success "USB audio configured as primary"
+else
+    print_info "Configuring built-in audio as primary (USB not available)..."
+    sudo tee /etc/asound.conf > /dev/null << EOF
+# WRB01 Audio Configuration - Built-in Primary
+pcm.!default {
+    type hw
+    card 0
+    device 0
+}
+
+ctl.!default {
+    type hw
+    card 0
+}
+
+# Built-in audio device
+pcm.builtin {
+    type hw
+    card 0
+    device 0
+}
+
+ctl.builtin {
+    type hw
+    card 0
+}
+EOF
+    print_success "Built-in audio configured as primary"
+fi
 
 # Copy audio files from repository
 print_step "Copying audio files..."
@@ -219,19 +277,18 @@ sudo chown wrb01:wrb01 /home/wrb01/simple_audio_player.py
 sudo chmod +x /home/wrb01/simple_audio_player.py
 
 # Update Python script with robust audio handling
-print_info "Installing robust Python script..."
+print_info "Installing robust Python script with USB audio fallback..."
 sudo tee /home/wrb01/simple_audio_player.py > /dev/null << 'EOF'
 #!/usr/bin/env python3
 """
 WRB Simple Audio Player for ESP32 Button System
-Based on working mattsfx code with proper audio handling
+Robust audio handling with USB audio priority and fallback
 """
 
 import os, glob, time, random, sys, serial
 
-# ALSA device configuration
+# ALSA device configuration - try USB first, fallback to built-in
 os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
-os.environ.setdefault("AUDIODEV", "plughw:1,0")  # USB audio device
 
 BAUD = 115200
 SERIAL = os.getenv("WRB_SERIAL", "/dev/ttyACM0")
@@ -294,16 +351,27 @@ def ensure_mixer():
     global _mixer_ready
     if _mixer_ready: return
     import pygame
-    for i in range(8):
-        try:
-            pygame.mixer.init(frequency=MIX_FREQ, size=-16, channels=2, buffer=MIX_BUF)
-            _mixer_ready = True
-            print("[wrb] audio: mixer ready", flush=True)
-            return
-        except Exception as e:
-            print(f"[wrb] audio init retry {i+1}: {e}", flush=True)
-            time.sleep(0.2)
-    raise SystemExit("audio init failed")
+    
+    # Try different audio devices in order of preference
+    audio_devices = [
+        "plughw:1,0",  # USB audio
+        "plughw:0,0",  # Built-in audio
+        "default"      # System default
+    ]
+    
+    for device in audio_devices:
+        for i in range(3):  # Try each device 3 times
+            try:
+                os.environ['AUDIODEV'] = device
+                pygame.mixer.init(frequency=MIX_FREQ, size=-16, channels=2, buffer=MIX_BUF)
+                _mixer_ready = True
+                print(f"[wrb] audio: mixer ready on {device}", flush=True)
+                return
+            except Exception as e:
+                print(f"[wrb] audio init retry {i+1} on {device}: {e}", flush=True)
+                time.sleep(0.2)
+    
+    raise SystemExit("audio init failed on all devices")
 
 def shutdown_mixer_if_idle():
     global _mixer_ready
