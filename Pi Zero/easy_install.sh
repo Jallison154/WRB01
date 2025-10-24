@@ -297,7 +297,7 @@ READY_ACTIVE_LOW = True
 MIX_FREQ = 44100
 MIX_BUF = 256
 RESCAN_SEC = 1.0
-IDLE_SHUTOFF_SEC = 1.0   # close audio device this long after last cue
+IDLE_SHUTOFF_SEC = 5.0   # close audio device this long after last cue (increased for faster response)
 
 # --- LED (simple on/off, active-low wiring) ---
 from gpiozero import LED
@@ -329,10 +329,12 @@ def pick_source():
 
 def classify(s):
     u = s.strip().upper()
-    if "BTN1" in u or "BUTTON1" in u: return 'BTN1'
-    if "BTN2" in u or "BUTTON2" in u: return 'BTN2'
-    if "HOLD1" in u: return 'HOLD1'
-    if "HOLD2" in u: return 'HOLD2'
+    # Check HOLD commands first (more specific)
+    if u == "HOLD1": return 'HOLD1'
+    if u == "HOLD2": return 'HOLD2'
+    # Then check button commands
+    if u == "BTN1" or u == "BUTTON1": return 'BTN1'
+    if u == "BTN2" or u == "BUTTON2": return 'BTN2'
     return None
 
 # --- on-demand audio helpers (no background output) ---
@@ -369,7 +371,7 @@ def ensure_mixer():
                 return
             except Exception as e:
                 print(f"[wrb] audio init retry {i+1} on {device}: {e}", flush=True)
-                time.sleep(0.2)
+                time.sleep(0.05)  # Much faster retry delay
     
     raise SystemExit("audio init failed on all devices")
 
