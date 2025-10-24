@@ -97,11 +97,16 @@ EOF
     sudo systemctl set-property wrb-simple.service MemoryHigh=512M
     sudo systemctl set-property wrb-simple.service MemoryMax=1G
     
-    # Enable parallel startup
+    # Enable parallel startup (only if services exist)
     print_info "Enabling parallel service startup..."
-    sudo systemctl enable systemd-udev-trigger.service
-    sudo systemctl enable systemd-networkd.service
-    sudo systemctl enable systemd-resolved.service
+    sudo systemctl enable systemd-udev-trigger.service 2>/dev/null || true
+    sudo systemctl enable systemd-networkd.service 2>/dev/null || true
+    # systemd-resolved may not exist on all Pi OS versions
+    if systemctl list-unit-files | grep -q "systemd-resolved.service"; then
+        sudo systemctl enable systemd-resolved.service 2>/dev/null || true
+    else
+        print_info "systemd-resolved.service not available, skipping..."
+    fi
     
     # Optimize filesystem
     print_info "Optimizing filesystem..."
@@ -538,26 +543,40 @@ def fade_out_sound(sound_key):
         
         def fade_thread():
             sound = _current_sounds[sound_key]
-            if sound and hasattr(sound, 'get_volume'):
-                # Get current volume
-                current_volume = sound.get_volume()
-                steps = 20  # Number of fade steps
-                step_duration = _fade_duration / steps
-                volume_step = current_volume / steps
-                
-                # Fade out over 1 second
-                for i in range(steps):
-                    if sound_key in _current_sounds:  # Check if still playing
-                        new_volume = max(0, current_volume - (volume_step * (i + 1)))
-                        sound.set_volume(new_volume)
-                        time.sleep(step_duration)
-                    else:
+            if sound:
+                # Get the channel that's playing this sound
+                channel = None
+                for ch in range(pygame.mixer.get_num_channels()):
+                    if pygame.mixer.Channel(ch).get_sound() == sound:
+                        channel = pygame.mixer.Channel(ch)
                         break
                 
-                # Stop the sound completely
-                if sound_key in _current_sounds:
+                if channel:
+                    # Fade out the channel volume over 1 second
+                    steps = 20  # Number of fade steps
+                    step_duration = 1.0 / steps  # 1 second total
+                    volume_step = 1.0 / steps  # Start from full volume
+                    
+                    # Fade out over 1 second
+                    for i in range(steps):
+                        if sound_key in _current_sounds:  # Check if still playing
+                            new_volume = max(0, 1.0 - (volume_step * (i + 1)))
+                            channel.set_volume(new_volume)
+                            time.sleep(step_duration)
+                        else:
+                            break
+                    
+                    # Stop the sound completely after fade
+                    if sound_key in _current_sounds:
+                        channel.stop()
+                        del _current_sounds[sound_key]
+                        print(f"[wrb] {sound_key.upper()} fade-out complete, ready for new trigger", flush=True)
+                else:
+                    # Fallback: just stop the sound
                     sound.stop()
-                    del _current_sounds[sound_key]
+                    if sound_key in _current_sounds:
+                        del _current_sounds[sound_key]
+                        print(f"[wrb] {sound_key.upper()} stopped, ready for new trigger", flush=True)
         
         # Start fade in background thread
         fade_thread = threading.Thread(target=fade_thread, daemon=True)
@@ -579,11 +598,11 @@ def play_button1():
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'button1' in _current_sounds:
-        print("[wrb] BUTTON1 stopping current sound", flush=True)
-        stop_current_sound('button1')
-        return  # Just stop, don't play new sound
+        print("[wrb] BUTTON1 fading out current sound", flush=True)
+        fade_out_sound('button1')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
@@ -602,11 +621,11 @@ def play_button2():
         print("[wrb] BUTTON2 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'button2' in _current_sounds:
-        print("[wrb] BUTTON2 stopping current sound", flush=True)
-        stop_current_sound('button2')
-        return  # Just stop, don't play new sound
+        print("[wrb] BUTTON2 fading out current sound", flush=True)
+        fade_out_sound('button2')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
@@ -625,11 +644,11 @@ def play_hold1():
         print("[wrb] HOLD1 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'hold1' in _current_sounds:
-        print("[wrb] HOLD1 stopping current sound", flush=True)
-        stop_current_sound('hold1')
-        return  # Just stop, don't play new sound
+        print("[wrb] HOLD1 fading out current sound", flush=True)
+        fade_out_sound('hold1')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
@@ -648,11 +667,11 @@ def play_hold2():
         print("[wrb] HOLD2 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'hold2' in _current_sounds:
-        print("[wrb] HOLD2 stopping current sound", flush=True)
-        stop_current_sound('hold2')
-        return  # Just stop, don't play new sound
+        print("[wrb] HOLD2 fading out current sound", flush=True)
+        fade_out_sound('hold2')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()

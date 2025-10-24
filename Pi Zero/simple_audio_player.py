@@ -122,9 +122,9 @@ def fade_out_sound(sound_key):
                         break
                 
                 if channel:
-                    # Fade out the channel volume
+                    # Fade out the channel volume over 1 second
                     steps = 20  # Number of fade steps
-                    step_duration = _fade_duration / steps
+                    step_duration = 1.0 / steps  # 1 second total
                     volume_step = 1.0 / steps  # Start from full volume
                     
                     # Fade out over 1 second
@@ -136,15 +136,17 @@ def fade_out_sound(sound_key):
                         else:
                             break
                     
-                    # Stop the sound completely
+                    # Stop the sound completely after fade
                     if sound_key in _current_sounds:
                         channel.stop()
                         del _current_sounds[sound_key]
+                        print(f"[wrb] {sound_key.upper()} fade-out complete, ready for new trigger", flush=True)
                 else:
                     # Fallback: just stop the sound
                     sound.stop()
                     if sound_key in _current_sounds:
                         del _current_sounds[sound_key]
+                        print(f"[wrb] {sound_key.upper()} stopped, ready for new trigger", flush=True)
         
         # Start fade in background thread
         fade_thread = threading.Thread(target=fade_thread, daemon=True)
@@ -166,11 +168,11 @@ def play_button1():
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'button1' in _current_sounds:
-        print("[wrb] BUTTON1 stopping current sound", flush=True)
-        stop_current_sound('button1')
-        return  # Just stop, don't play new sound
+        print("[wrb] BUTTON1 fading out current sound", flush=True)
+        fade_out_sound('button1')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
@@ -189,11 +191,11 @@ def play_button2():
         print("[wrb] BUTTON2 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'button2' in _current_sounds:
-        print("[wrb] BUTTON2 stopping current sound", flush=True)
-        stop_current_sound('button2')
-        return  # Just stop, don't play new sound
+        print("[wrb] BUTTON2 fading out current sound", flush=True)
+        fade_out_sound('button2')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
@@ -212,11 +214,11 @@ def play_hold1():
         print("[wrb] HOLD1 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'hold1' in _current_sounds:
-        print("[wrb] HOLD1 stopping current sound", flush=True)
-        stop_current_sound('hold1')
-        return  # Just stop, don't play new sound
+        print("[wrb] HOLD1 fading out current sound", flush=True)
+        fade_out_sound('hold1')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
@@ -235,11 +237,11 @@ def play_hold2():
         print("[wrb] HOLD2 (no file)", flush=True)
         return
     
-    # If already playing, stop it
+    # If already playing, fade it out over 1 second
     if 'hold2' in _current_sounds:
-        print("[wrb] HOLD2 stopping current sound", flush=True)
-        stop_current_sound('hold2')
-        return  # Just stop, don't play new sound
+        print("[wrb] HOLD2 fading out current sound", flush=True)
+        fade_out_sound('hold2')
+        return  # Just fade out, don't play new sound
     
     # Play new sound
     ensure_mixer()
