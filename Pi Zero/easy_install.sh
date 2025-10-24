@@ -57,28 +57,89 @@ print_step "Installing required packages..."
 sudo apt install -y python3-pygame python3-serial python3-numpy python3-gpiozero alsa-utils git
 print_success "Required packages installed"
 
-# Remove old installation and clone fresh repository
-print_step "Removing old installation and cloning fresh repository..."
+# Comprehensive cleanup of old installation
+print_step "Performing comprehensive cleanup of old installation..."
 
-# Stop and disable old service if it exists
+# Stop and disable all old services
+print_info "Stopping and disabling old services..."
 if systemctl is-active --quiet wrb-simple.service 2>/dev/null; then
-    print_info "Stopping old service..."
+    print_info "Stopping wrb-simple.service..."
     sudo systemctl stop wrb-simple.service
     sudo systemctl disable wrb-simple.service
 fi
 
-# Remove old service file
-if [ -f "/etc/systemd/system/wrb-simple.service" ]; then
-    print_info "Removing old service file..."
-    sudo rm -f /etc/systemd/system/wrb-simple.service
-    sudo systemctl daemon-reload
+if systemctl is-active --quiet WRB-enhanced.service 2>/dev/null; then
+    print_info "Stopping WRB-enhanced.service..."
+    sudo systemctl stop WRB-enhanced.service
+    sudo systemctl disable WRB-enhanced.service
 fi
 
-# Remove old WRB01 directory
-if [ -d "WRB01" ]; then
-    print_info "Removing old repository..."
-    rm -rf WRB01
+if systemctl is-active --quiet wrb-watchdog.service 2>/dev/null; then
+    print_info "Stopping wrb-watchdog.service..."
+    sudo systemctl stop wrb-watchdog.service
+    sudo systemctl disable wrb-watchdog.service
 fi
+
+if systemctl is-active --quiet wrb-network-monitor.service 2>/dev/null; then
+    print_info "Stopping wrb-network-monitor.service..."
+    sudo systemctl stop wrb-network-monitor.service
+    sudo systemctl disable wrb-network-monitor.service
+fi
+
+# Remove all old service files
+print_info "Removing old service files..."
+sudo rm -f /etc/systemd/system/wrb-simple.service
+sudo rm -f /etc/systemd/system/WRB-enhanced.service
+sudo rm -f /etc/systemd/system/wrb-watchdog.service
+sudo rm -f /etc/systemd/system/wrb-network-monitor.service
+sudo rm -f /etc/logrotate.d/wrb
+sudo systemctl daemon-reload
+
+# Remove old user directories and files
+print_info "Removing old user directories and files..."
+sudo rm -rf /home/wrb01/WRB 2>/dev/null || true
+sudo rm -rf /home/wrb01/WRB01 2>/dev/null || true
+sudo rm -rf /home/wrb01/audio 2>/dev/null || true
+sudo rm -f /home/wrb01/simple_audio_player.py 2>/dev/null || true
+sudo rm -f /home/wrb01/test_buttons.py 2>/dev/null || true
+sudo rm -f /home/wrb01/PiScript 2>/dev/null || true
+sudo rm -f /home/wrb01/config.py 2>/dev/null || true
+sudo rm -f /home/wrb01/health_monitor.py 2>/dev/null || true
+sudo rm -f /home/wrb01/network_monitor.py 2>/dev/null || true
+sudo rm -f /home/wrb01/setup_audio.sh 2>/dev/null || true
+sudo rm -f /home/wrb01/test_audio.py 2>/dev/null || true
+sudo rm -f /home/wrb01/fix_python_2024.sh 2>/dev/null || true
+sudo rm -f /home/wrb01/activate_venv.sh 2>/dev/null || true
+sudo rm -rf /home/wrb01/venv 2>/dev/null || true
+sudo rm -rf /home/wrb01/logs 2>/dev/null || true
+sudo rm -rf /home/wrb01/sounds 2>/dev/null || true
+sudo rm -rf /home/wrb01/default_sounds 2>/dev/null || true
+
+# Remove old pi user directories (if they exist)
+print_info "Removing old pi user directories..."
+sudo rm -rf /home/pi/WRB 2>/dev/null || true
+sudo rm -rf /home/pi/WRB01 2>/dev/null || true
+sudo rm -rf /home/pi/audio 2>/dev/null || true
+sudo rm -f /home/pi/simple_audio_player.py 2>/dev/null || true
+sudo rm -f /home/pi/test_buttons.py 2>/dev/null || true
+
+# Remove old repository directories
+print_info "Removing old repository directories..."
+rm -rf WRB01 2>/dev/null || true
+rm -rf ~/WRB01 2>/dev/null || true
+rm -rf ~/WRB 2>/dev/null || true
+
+# Remove old configuration files
+print_info "Removing old configuration files..."
+sudo rm -f /etc/asound.conf 2>/dev/null || true
+sudo rm -f /etc/watchdog.conf 2>/dev/null || true
+
+# Clean up any old Python packages
+print_info "Cleaning up old Python packages..."
+sudo apt autoremove -y 2>/dev/null || true
+sudo apt autoclean 2>/dev/null || true
+
+print_success "Comprehensive cleanup completed"
 
 # Clone fresh repository
 print_info "Cloning fresh repository..."
@@ -102,28 +163,8 @@ fi
 sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input wrb01
 print_success "User groups configured"
 
-# Clean up old files and create fresh audio directory
-print_step "Cleaning up old files and setting up fresh audio directory..."
-
-# Remove old audio files
-if [ -d "/home/wrb01/audio" ]; then
-    print_info "Removing old audio files..."
-    sudo rm -rf /home/wrb01/audio
-fi
-
-# Remove old Python script
-if [ -f "/home/wrb01/simple_audio_player.py" ]; then
-    print_info "Removing old Python script..."
-    sudo rm -f /home/wrb01/simple_audio_player.py
-fi
-
-# Remove old test script
-if [ -f "/home/wrb01/test_buttons.py" ]; then
-    print_info "Removing old test script..."
-    sudo rm -f /home/wrb01/test_buttons.py
-fi
-
-# Create fresh audio directory
+# Create fresh audio directory (cleanup already done above)
+print_step "Setting up fresh audio directory..."
 sudo mkdir -p /home/wrb01/audio
 sudo chown wrb01:wrb01 /home/wrb01/audio
 print_success "Fresh audio directory created"
