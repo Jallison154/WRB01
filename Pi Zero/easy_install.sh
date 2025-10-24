@@ -610,9 +610,19 @@ def play_button1():
     
     # If already playing, fade it out over 1 second
     if 'button1' in _current_sounds:
-        print("[wrb] BUTTON1 fading out current sound", flush=True)
-        fade_out_sound('button1')
-        return  # Just fade out, don't play new sound
+        # Check if sound is actually still playing by checking the channel
+        import pygame
+        channel = pygame.mixer.Channel(0)
+        if channel.get_busy():
+            # Sound is still active, fade it out
+            print("[wrb] BUTTON1 fading out current sound", flush=True)
+            fade_out_sound('button1')
+            # Wait a moment for fade to start, then play new sound
+            time.sleep(0.1)
+        else:
+            # Sound has finished, remove from tracking
+            print("[wrb] BUTTON1 sound finished, removing from tracking", flush=True)
+            del _current_sounds['button1']
     
     # Play new sound
     ensure_mixer()
@@ -643,9 +653,19 @@ def play_button2():
     
     # If already playing, fade it out over 1 second
     if 'button2' in _current_sounds:
-        print("[wrb] BUTTON2 fading out current sound", flush=True)
-        fade_out_sound('button2')
-        return  # Just fade out, don't play new sound
+        # Check if sound is actually still playing by checking the channel
+        import pygame
+        channel = pygame.mixer.Channel(1)
+        if channel.get_busy():
+            # Sound is still active, fade it out
+            print("[wrb] BUTTON2 fading out current sound", flush=True)
+            fade_out_sound('button2')
+            # Wait a moment for fade to start, then play new sound
+            time.sleep(0.1)
+        else:
+            # Sound has finished, remove from tracking
+            print("[wrb] BUTTON2 sound finished, removing from tracking", flush=True)
+            del _current_sounds['button2']
     
     # Play new sound
     ensure_mixer()
@@ -676,9 +696,19 @@ def play_hold1():
     
     # If already playing, fade it out over 1 second
     if 'hold1' in _current_sounds:
-        print("[wrb] HOLD1 fading out current sound", flush=True)
-        fade_out_sound('hold1')
-        return  # Just fade out, don't play new sound
+        # Check if sound is actually still playing by checking the channel
+        import pygame
+        channel = pygame.mixer.Channel(2)
+        if channel.get_busy():
+            # Sound is still active, fade it out
+            print("[wrb] HOLD1 fading out current sound", flush=True)
+            fade_out_sound('hold1')
+            # Wait a moment for fade to start, then play new sound
+            time.sleep(0.1)
+        else:
+            # Sound has finished, remove from tracking
+            print("[wrb] HOLD1 sound finished, removing from tracking", flush=True)
+            del _current_sounds['hold1']
     
     # Play new sound
     ensure_mixer()
@@ -709,9 +739,19 @@ def play_hold2():
     
     # If already playing, fade it out over 1 second
     if 'hold2' in _current_sounds:
-        print("[wrb] HOLD2 fading out current sound", flush=True)
-        fade_out_sound('hold2')
-        return  # Just fade out, don't play new sound
+        # Check if sound is actually still playing by checking the channel
+        import pygame
+        channel = pygame.mixer.Channel(3)
+        if channel.get_busy():
+            # Sound is still active, fade it out
+            print("[wrb] HOLD2 fading out current sound", flush=True)
+            fade_out_sound('hold2')
+            # Wait a moment for fade to start, then play new sound
+            time.sleep(0.1)
+        else:
+            # Sound has finished, remove from tracking
+            print("[wrb] HOLD2 sound finished, removing from tracking", flush=True)
+            del _current_sounds['hold2']
     
     # Play new sound
     ensure_mixer()
