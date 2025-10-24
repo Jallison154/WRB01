@@ -435,10 +435,11 @@ def play_button1():
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
     
-    # Fade out current button1 sound if playing
+    # Stop current button1 sound if playing
     if 'button1' in _current_sounds:
-        print("[wrb] BUTTON1 fade-out previous sound", flush=True)
-        fade_out_sound('button1')
+        print("[wrb] BUTTON1 stopping previous sound", flush=True)
+        stop_current_sound('button1')
+        time.sleep(0.1)  # Brief pause to ensure stop completes
     
     ensure_mixer()
     import pygame
@@ -456,10 +457,11 @@ def play_button2():
         print("[wrb] BUTTON2 (no file)", flush=True)
         return
     
-    # Fade out current button2 sound if playing
+    # Stop current button2 sound if playing
     if 'button2' in _current_sounds:
-        print("[wrb] BUTTON2 fade-out previous sound", flush=True)
-        fade_out_sound('button2')
+        print("[wrb] BUTTON2 stopping previous sound", flush=True)
+        stop_current_sound('button2')
+        time.sleep(0.1)  # Brief pause to ensure stop completes
     
     ensure_mixer()
     import pygame
@@ -477,10 +479,11 @@ def play_hold1():
         print("[wrb] HOLD1 (no file)", flush=True)
         return
     
-    # Fade out current hold1 sound if playing
+    # Stop current hold1 sound if playing
     if 'hold1' in _current_sounds:
-        print("[wrb] HOLD1 fade-out previous sound", flush=True)
-        fade_out_sound('hold1')
+        print("[wrb] HOLD1 stopping previous sound", flush=True)
+        stop_current_sound('hold1')
+        time.sleep(0.1)  # Brief pause to ensure stop completes
     
     ensure_mixer()
     import pygame
@@ -498,10 +501,11 @@ def play_hold2():
         print("[wrb] HOLD2 (no file)", flush=True)
         return
     
-    # Fade out current hold2 sound if playing
+    # Stop current hold2 sound if playing
     if 'hold2' in _current_sounds:
-        print("[wrb] HOLD2 fade-out previous sound", flush=True)
-        fade_out_sound('hold2')
+        print("[wrb] HOLD2 stopping previous sound", flush=True)
+        stop_current_sound('hold2')
+        time.sleep(0.1)  # Brief pause to ensure stop completes
     
     ensure_mixer()
     import pygame
