@@ -75,6 +75,18 @@ def main():
     # Test USB audio
     test_usb_audio()
     
+    # Test audio files
+    print("Testing audio files...")
+    if os.path.exists(BUTTON1_FILE):
+        print(f"✓ {BUTTON1_FILE} exists")
+    else:
+        print(f"✗ {BUTTON1_FILE} not found")
+    
+    if os.path.exists(BUTTON2_FILE):
+        print(f"✓ {BUTTON2_FILE} exists")
+    else:
+        print(f"✗ {BUTTON2_FILE} not found")
+    
     # Setup serial connection
     try:
         ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
@@ -93,17 +105,21 @@ def main():
             # Read serial data
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8').strip()
-                print(f"Received: {line}")
+                print(f"Received: '{line}' (length: {len(line)})")
                 
                 # Handle button commands (from ESP32 receiver)
-                if line == "BTN1":
-                    play_audio(BUTTON1_FILE)
-                elif line == "BTN2":
-                    play_audio(BUTTON2_FILE)
-                elif line == "HOLD1":
-                    play_audio(HOLD1_FILE)  # Separate audio for hold
-                elif line == "HOLD2":
-                    play_audio(HOLD2_FILE)  # Separate audio for hold
+                if line.startswith("BTN"):
+                    button_num = line[3:]  # Extract number after "BTN"
+                    if button_num == "1":
+                        play_audio(BUTTON1_FILE)
+                    elif button_num == "2":
+                        play_audio(BUTTON2_FILE)
+                elif line.startswith("HOLD"):
+                    button_num = line[4:]  # Extract number after "HOLD"
+                    if button_num == "1":
+                        play_audio(HOLD1_FILE)  # Separate audio for hold
+                    elif button_num == "2":
+                        play_audio(HOLD2_FILE)  # Separate audio for hold
             
             time.sleep(0.01)  # Small delay
             
