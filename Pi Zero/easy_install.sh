@@ -57,20 +57,36 @@ print_step "Installing required packages..."
 sudo apt install -y python3-pygame python3-serial python3-numpy alsa-utils git
 print_success "Required packages installed"
 
-# Clone repository
-print_step "Cloning WRB01 repository..."
-if [ -d "WRB01" ]; then
-    print_info "Repository already exists, updating..."
-    cd WRB01
-    git pull origin WRB01
-    cd ..
-else
-    git clone https://github.com/Jallison154/WRB01.git
-    cd WRB01
-    git checkout WRB01
-    cd ..
+# Remove old installation and clone fresh repository
+print_step "Removing old installation and cloning fresh repository..."
+
+# Stop and disable old service if it exists
+if systemctl is-active --quiet wrb-simple.service 2>/dev/null; then
+    print_info "Stopping old service..."
+    sudo systemctl stop wrb-simple.service
+    sudo systemctl disable wrb-simple.service
 fi
-print_success "Repository cloned/updated"
+
+# Remove old service file
+if [ -f "/etc/systemd/system/wrb-simple.service" ]; then
+    print_info "Removing old service file..."
+    sudo rm -f /etc/systemd/system/wrb-simple.service
+    sudo systemctl daemon-reload
+fi
+
+# Remove old WRB01 directory
+if [ -d "WRB01" ]; then
+    print_info "Removing old repository..."
+    rm -rf WRB01
+fi
+
+# Clone fresh repository
+print_info "Cloning fresh repository..."
+git clone https://github.com/Jallison154/WRB01.git
+cd WRB01
+git checkout WRB01
+cd ..
+print_success "Fresh repository cloned"
 
 # Create wrb01 user if it doesn't exist
 print_step "Setting up user environment..."
@@ -86,11 +102,31 @@ fi
 sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input wrb01
 print_success "User groups configured"
 
-# Create audio directory
-print_step "Setting up audio directory..."
+# Clean up old files and create fresh audio directory
+print_step "Cleaning up old files and setting up fresh audio directory..."
+
+# Remove old audio files
+if [ -d "/home/wrb01/audio" ]; then
+    print_info "Removing old audio files..."
+    sudo rm -rf /home/wrb01/audio
+fi
+
+# Remove old Python script
+if [ -f "/home/wrb01/simple_audio_player.py" ]; then
+    print_info "Removing old Python script..."
+    sudo rm -f /home/wrb01/simple_audio_player.py
+fi
+
+# Remove old test script
+if [ -f "/home/wrb01/test_buttons.py" ]; then
+    print_info "Removing old test script..."
+    sudo rm -f /home/wrb01/test_buttons.py
+fi
+
+# Create fresh audio directory
 sudo mkdir -p /home/wrb01/audio
 sudo chown wrb01:wrb01 /home/wrb01/audio
-print_success "Audio directory created"
+print_success "Fresh audio directory created"
 
 # Configure USB audio interface
 print_step "Configuring USB audio interface..."
@@ -131,12 +167,15 @@ else
     print_info "Please add your audio files manually to /home/wrb01/audio/"
 fi
 
-# Copy Python script
-print_step "Installing Python script..."
+# Copy Python scripts
+print_step "Installing Python scripts..."
 sudo cp "WRB01/Pi Zero/simple_audio_player.py" /home/wrb01/
+sudo cp "WRB01/Pi Zero/test_buttons.py" /home/wrb01/
 sudo chown wrb01:wrb01 /home/wrb01/simple_audio_player.py
+sudo chown wrb01:wrb01 /home/wrb01/test_buttons.py
 sudo chmod +x /home/wrb01/simple_audio_player.py
-print_success "Python script installed"
+sudo chmod +x /home/wrb01/test_buttons.py
+print_success "Python scripts installed"
 
 # Create systemd service
 print_step "Creating systemd service..."
@@ -191,6 +230,13 @@ else
     print_warning "⚠ Service may not be running"
 fi
 
+# Clean up repository
+print_step "Cleaning up installation files..."
+if [ -d "WRB01" ]; then
+    rm -rf WRB01
+    print_info "Repository directory removed"
+fi
+
 echo
 print_success "=== INSTALLATION COMPLETE ==="
 echo
@@ -200,12 +246,14 @@ print_info "View service logs: sudo journalctl -u wrb-simple.service -f"
 print_info "Restart service: sudo systemctl restart wrb-simple.service"
 print_info "Stop service: sudo systemctl stop wrb-simple.service"
 print_info "Start service: sudo systemctl start wrb-simple.service"
+print_info "Test buttons: python3 /home/wrb01/test_buttons.py"
 echo
 print_info "=== SYSTEM READY ==="
 print_info "✓ ESP32 receiver should be connected to /dev/ttyACM0"
 print_info "✓ USB audio interface configured"
 print_info "✓ Audio files ready"
 print_info "✓ Service running automatically"
+print_info "✓ Test script available for debugging"
 echo
 print_info "Your WRB01 Simple Button + Audio System is ready!"
 print_info "Press buttons on your ESP32 transmitter to hear audio!"
