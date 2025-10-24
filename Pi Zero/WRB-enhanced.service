@@ -9,7 +9,7 @@ StartLimitBurst=3
 Type=simple
 User=wrb01
 Group=audio
-WorkingDirectory=/home/wrb01/WRB01/Pi Zero
+WorkingDirectory=/home/wrb01/WRB
 Environment=HOME=/home/wrb01
 Environment=USER=wrb01
 Environment=WRB_SERIAL=/dev/ttyACM0
@@ -17,7 +17,7 @@ Environment=SDL_AUDIODRIVER=alsa
 Environment=AUDIODEV=plughw:0,0
 Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
 ExecStartPre=/bin/sleep 3
-ExecStart=/usr/bin/python3 /home/wrb01/WRB01/Pi\ Zero/PiScript
+ExecStart=/usr/bin/python3 /home/wrb01/WRB/PiScript
 Restart=on-failure
 RestartSec=5
 RestartPreventExitStatus=1

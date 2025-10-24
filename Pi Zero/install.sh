@@ -280,7 +280,7 @@ create_virtual_environment() {
     cat > "$WRB_HOME/activate_venv.sh" << 'EOF'
 #!/bin/bash
 # Activate WRB virtual environment
-source ~/WRB/venv/bin/activate
+source /home/wrb01/WRB/venv/bin/activate
 echo "Virtual environment activated"
 echo "Run: python PiScript"
 EOF

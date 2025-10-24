@@ -79,21 +79,21 @@ AUDIO_HARDWARE_ACCELERATION = True  # Enable hardware acceleration if available
 # =============================================================================
 
 # Base directory for WRB files
-WRB_HOME = "~/WRB"
+WRB_HOME = "/home/wrb01/WRB"
 
 # Sound file directories (in order of preference)
 SOUND_DIRECTORIES = [
-    "~/WRB/sounds",           # Local sounds directory
-    "~/WRB/default_sounds",   # Default sounds directory
+    "/home/wrb01/WRB/sounds",           # Local sounds directory
+    "/home/wrb01/WRB/default_sounds",   # Default sounds directory
 ]
 
 # Log file paths
-LOG_DIR = "~/WRB/logs"
-LOG_FILE = "~/WRB/logs/button_log.txt"
-ERROR_LOG = "~/WRB/logs/error_log.txt"
+LOG_DIR = "/home/wrb01/WRB/logs"
+LOG_FILE = "/home/wrb01/WRB/logs/button_log.txt"
+ERROR_LOG = "/home/wrb01/WRB/logs/error_log.txt"
 
 # Configuration file path
-CONFIG_FILE = "~/WRB/config.py"
+CONFIG_FILE = "/home/wrb01/WRB/config.py"
 
 # =============================================================================
 # ESP32 MESSAGE CONFIGURATION
@@ -174,9 +174,9 @@ CONSOLE_LOG_LEVEL = "INFO"
 
 # Service settings
 SERVICE_NAME = "WRB-enhanced.service"
-SERVICE_USER = "pi"
+SERVICE_USER = "wrb01"
 SERVICE_GROUP = "audio"
-SERVICE_WORKING_DIR = "/home/pi/WRB"
+SERVICE_WORKING_DIR = "/home/wrb01/WRB"
 
 # Service environment variables
 SERVICE_ENV_VARS = {
@@ -271,11 +271,11 @@ NETWORK_CHECK_INTERVAL = 60  # seconds
 # Update settings
 AUTO_UPDATE_CHECK = True
 UPDATE_CHECK_INTERVAL = 86400  # 24 hours
-UPDATE_BRANCH = "Update-1.0"  # Preferred branch
+UPDATE_BRANCH = "WRB01"  # Preferred branch
 UPDATE_FALLBACK_BRANCH = "main"  # Fallback branch
 
 # Git repository settings
-GIT_REPO_URL = "https://github.com/Jallison154/TheBigWRB.git"
+GIT_REPO_URL = "https://github.com/Jallison154/WRB01.git"
 GIT_REMOTE = "origin"
 
 # =============================================================================
@@ -292,7 +292,7 @@ CUSTOM_ACTIONS = {
 
 # Custom sound settings
 CUSTOM_SOUND_ENABLED = True
-CUSTOM_SOUND_DIRECTORY = "~/WRB/custom_sounds"
+CUSTOM_SOUND_DIRECTORY = "/home/wrb01/WRB/custom_sounds"
 
 # =============================================================================
 # VALIDATION FUNCTIONS
