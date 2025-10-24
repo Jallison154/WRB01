@@ -19,7 +19,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Installation paths
-WRB_HOME="$HOME/WRB"
+WRB_HOME="/home/wrb01/WRB"
 WRB_LOG_DIR="$WRB_HOME/logs"
 WRB_SOUNDS_DIR="$WRB_HOME/sounds"
 WRB_DEFAULT_SOUNDS="$WRB_HOME/default_sounds"
@@ -34,7 +34,7 @@ SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME"
 REPO_URL="https://github.com/Jallison154/WRB01.git"
 BRANCH_UPDATE="WRB01"
 BRANCH_MAIN="main"
-REPO_DIR="$HOME/WRB01"
+REPO_DIR="/home/wrb01/WRB01"
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -1118,11 +1118,11 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=$USER
+User=wrb01
 Group=audio
 WorkingDirectory=$WRB_HOME
-Environment=HOME=$HOME
-Environment=USER=$USER
+Environment=HOME=/home/wrb01
+Environment=USER=wrb01
 ExecStart=/usr/bin/python3 $WRB_HOME/health_monitor.py
 Restart=always
 RestartSec=30
