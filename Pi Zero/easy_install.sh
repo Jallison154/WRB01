@@ -172,29 +172,61 @@ print_success "Required packages installed"
 # Comprehensive cleanup of old installation
 print_step "Performing comprehensive cleanup of old installation..."
 
-# Stop and disable all old services
+# Stop and disable all old services with force stop and timeout
 print_info "Stopping and disabling old services..."
+print_info "Using force stop with timeout to prevent hanging..."
 if systemctl is-active --quiet wrb-simple.service 2>/dev/null; then
-    print_info "Stopping wrb-simple.service..."
-    sudo systemctl stop wrb-simple.service
+    print_info "Stopping wrb-simple.service (with 10s timeout)..."
+    timeout 10s sudo systemctl stop wrb-simple.service 2>/dev/null || true
+    
+    # Wait a moment and force kill if still running
+    sleep 2
+    if systemctl is-active --quiet wrb-simple.service 2>/dev/null; then
+        print_info "Service still running, force stopping..."
+        sudo systemctl kill --signal=SIGKILL wrb-simple.service 2>/dev/null || true
+        sleep 1
+    fi
+    
+    # Double-check and force kill any remaining processes
+    if pgrep -f "simple_audio_player.py" > /dev/null; then
+        print_info "Force killing remaining Python processes..."
+        sudo pkill -f "simple_audio_player.py" 2>/dev/null || true
+        sleep 1
+    fi
+    
     sudo systemctl disable wrb-simple.service
 fi
 
 if systemctl is-active --quiet WRB-enhanced.service 2>/dev/null; then
-    print_info "Stopping WRB-enhanced.service..."
-    sudo systemctl stop WRB-enhanced.service
+    print_info "Stopping WRB-enhanced.service (with 5s timeout)..."
+    timeout 5s sudo systemctl stop WRB-enhanced.service 2>/dev/null || true
+    sleep 1
+    if systemctl is-active --quiet WRB-enhanced.service 2>/dev/null; then
+        print_info "Force stopping WRB-enhanced.service..."
+        sudo systemctl kill --signal=SIGKILL WRB-enhanced.service 2>/dev/null || true
+    fi
     sudo systemctl disable WRB-enhanced.service
 fi
 
 if systemctl is-active --quiet wrb-watchdog.service 2>/dev/null; then
-    print_info "Stopping wrb-watchdog.service..."
-    sudo systemctl stop wrb-watchdog.service
+    print_info "Stopping wrb-watchdog.service (with 5s timeout)..."
+    timeout 5s sudo systemctl stop wrb-watchdog.service 2>/dev/null || true
+    sleep 1
+    if systemctl is-active --quiet wrb-watchdog.service 2>/dev/null; then
+        print_info "Force stopping wrb-watchdog.service..."
+        sudo systemctl kill --signal=SIGKILL wrb-watchdog.service 2>/dev/null || true
+    fi
     sudo systemctl disable wrb-watchdog.service
 fi
 
 if systemctl is-active --quiet wrb-network-monitor.service 2>/dev/null; then
-    print_info "Stopping wrb-network-monitor.service..."
-    sudo systemctl stop wrb-network-monitor.service
+    print_info "Stopping wrb-network-monitor.service (with 5s timeout)..."
+    timeout 5s sudo systemctl stop wrb-network-monitor.service 2>/dev/null || true
+    sleep 1
+    if systemctl is-active --quiet wrb-network-monitor.service 2>/dev/null; then
+        print_info "Force stopping wrb-network-monitor.service..."
+        sudo systemctl kill --signal=SIGKILL wrb-network-monitor.service 2>/dev/null || true
+    fi
     sudo systemctl disable wrb-network-monitor.service
 fi
 
