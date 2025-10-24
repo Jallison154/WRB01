@@ -1,3 +1,45 @@
+#!/bin/bash
+# Fix for USB audio as default output
+
+echo "=== Configuring USB Audio as Default ==="
+
+# Stop the service
+echo "Stopping service..."
+sudo systemctl stop wrb-simple.service
+
+# Check available audio devices
+echo "Available audio devices:"
+aplay -l
+
+# Update ALSA configuration to use USB audio as default
+echo "Configuring USB audio as default..."
+sudo tee /etc/asound.conf > /dev/null << EOF
+# USB Audio Configuration - USB as default
+pcm.!default {
+    type hw
+    card 1
+    device 0
+}
+ctl.!default {
+    type hw
+    card 1
+}
+
+# Built-in audio fallback
+pcm.builtin {
+    type hw
+    card 0
+    device 0
+}
+ctl.builtin {
+    type hw
+    card 0
+}
+EOF
+
+# Update the Python script to prefer USB audio
+echo "Updating Python script for USB audio..."
+sudo tee /home/wrb01/simple_audio_player.py > /dev/null << 'EOF'
 #!/usr/bin/env python3
 """
 Simple Audio Player for ESP32 Button System
@@ -17,29 +59,13 @@ HOLD1_FILE = os.path.join(AUDIO_DIR, "hold1.wav")
 HOLD2_FILE = os.path.join(AUDIO_DIR, "hold2.wav")
 
 def setup_audio():
-    """Initialize pygame audio system with fallback to built-in audio"""
-    # Set environment variables for ALSA
+    """Initialize pygame audio system for USB audio interface"""
+    # Set environment variables for USB audio
     os.environ['SDL_AUDIODRIVER'] = 'alsa'
+    os.environ['AUDIODEV'] = 'plughw:1,0'  # USB audio device (card 1, device 0)
     
-    # Try USB audio first, then fallback to built-in audio
-    try:
-        # Try USB audio (card 1)
-        os.environ['AUDIODEV'] = 'plughw:1,0'
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-        print("Audio system initialized for USB audio interface")
-    except Exception as e:
-        print(f"USB audio failed: {e}")
-        try:
-            # Fallback to built-in audio (card 0)
-            os.environ['AUDIODEV'] = 'plughw:0,0'
-            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-            print("Audio system initialized for built-in audio interface")
-        except Exception as e2:
-            print(f"Built-in audio failed: {e2}")
-            # Try default audio
-            del os.environ['AUDIODEV']
-            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-            print("Audio system initialized with default settings")
+    pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+    print("Audio system initialized for USB audio interface")
 
 def play_audio(file_path):
     """Play audio file"""
@@ -148,3 +174,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+EOF
+
+# Set proper ownership
+sudo chown wrb01:wrb01 /home/wrb01/simple_audio_player.py
+sudo chmod +x /home/wrb01/simple_audio_player.py
+
+# Restart the service
+echo "Restarting service..."
+sudo systemctl start wrb-simple.service
+
+echo "✓ USB audio configured as default!"
+echo "Check service status: sudo systemctl status wrb-simple.service"
+echo "Check service logs: sudo journalctl -u wrb-simple.service -f"

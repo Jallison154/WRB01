@@ -1,3 +1,41 @@
+#!/bin/bash
+# Quick fix for audio configuration
+
+echo "=== Fixing Audio Configuration ==="
+
+# Stop the service
+echo "Stopping service..."
+sudo systemctl stop wrb-simple.service
+
+# Update ALSA configuration to use built-in audio
+echo "Updating ALSA configuration..."
+sudo tee /etc/asound.conf > /dev/null << EOF
+# Audio Configuration - Built-in audio as default
+pcm.!default {
+    type hw
+    card 0
+    device 0
+}
+ctl.!default {
+    type hw
+    card 0
+}
+
+# USB audio interface (if available)
+pcm.usb {
+    type hw
+    card 1
+    device 0
+}
+ctl.usb {
+    type hw
+    card 1
+}
+EOF
+
+# Update the Python script with fallback audio
+echo "Updating Python script..."
+sudo tee /home/wrb01/simple_audio_player.py > /dev/null << 'EOF'
 #!/usr/bin/env python3
 """
 Simple Audio Player for ESP32 Button System
@@ -83,7 +121,7 @@ def test_usb_audio():
 
 def main():
     print("Simple Audio Player Starting...")
-    print("Configured for USB audio interface")
+    print("Configured for audio interface with fallback")
     
     # Setup audio
     setup_audio()
@@ -148,3 +186,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+EOF
+
+# Set proper ownership
+sudo chown wrb01:wrb01 /home/wrb01/simple_audio_player.py
+sudo chmod +x /home/wrb01/simple_audio_player.py
+
+# Restart the service
+echo "Restarting service..."
+sudo systemctl start wrb-simple.service
+
+echo "✓ Audio configuration fixed!"
+echo "Check service status: sudo systemctl status wrb-simple.service"
+echo "Check service logs: sudo journalctl -u wrb-simple.service -f"
