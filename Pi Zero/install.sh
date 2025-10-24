@@ -1110,7 +1110,7 @@ EOF
 create_watchdog_service() {
     print_step "Creating watchdog service..."
     
-    cat > "/etc/systemd/system/wrb-watchdog.service" << EOF
+    sudo tee "/etc/systemd/system/wrb-watchdog.service" > /dev/null << EOF
 [Unit]
 Description=WRB System Watchdog
 After=network.target WRB-enhanced.service
@@ -1143,7 +1143,7 @@ EOF
 setup_log_rotation() {
     print_step "Setting up log rotation..."
     
-    cat > "/etc/logrotate.d/wrb" << EOF
+    sudo tee "/etc/logrotate.d/wrb" > /dev/null << EOF
 $WRB_HOME/logs/*.log {
     daily
     missingok
@@ -1235,7 +1235,7 @@ EOF
     sudo chmod +x "$WRB_HOME/network_monitor.py"
     
     # Create network monitor service
-    cat > "/etc/systemd/system/wrb-network-monitor.service" << EOF
+    sudo tee "/etc/systemd/system/wrb-network-monitor.service" > /dev/null << EOF
 [Unit]
 Description=WRB Network Monitor
 After=network.target
