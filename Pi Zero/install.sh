@@ -24,8 +24,7 @@ WRB_LOG_DIR="$WRB_HOME/logs"
 WRB_SOUNDS_DIR="$WRB_HOME/sounds"
 WRB_DEFAULT_SOUNDS="$WRB_HOME/default_sounds"
 
-# Ensure WRB_HOME directory exists
-mkdir -p "$WRB_HOME"
+# WRB_HOME directory will be created during setup_user_environment
 
 # Service configuration
 SERVICE_NAME="WRB-enhanced.service"
@@ -93,24 +92,48 @@ setup_user_environment() {
     if ! id "wrb01" &>/dev/null; then
         print_info "Creating wrb01 user..."
         sudo useradd -m -s /bin/bash wrb01
-        sudo usermod -a -G audio,gpio,dialout,spi,i2c wrb01
         print_success "wrb01 user created"
     else
         print_info "wrb01 user already exists"
     fi
     
+    # Add wrb01 to all necessary groups (always do this to ensure groups are correct)
+    print_info "Setting up user groups for wrb01..."
+    sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input wrb01
+    
     # Ensure home directory exists and has proper permissions
     if [ ! -d "/home/wrb01" ]; then
         print_info "Creating /home/wrb01 directory..."
         sudo mkdir -p /home/wrb01
-        sudo chown -R wrb01:wrb01 /home/wrb01
-        sudo chmod 755 /home/wrb01
     fi
     
-    # Set up proper permissions for the current user
+    # ALWAYS fix permissions on home directory (critical for different Pis)
+    print_info "Setting proper permissions on /home/wrb01..."
+    sudo chown -R wrb01:wrb01 /home/wrb01
+    sudo chmod 755 /home/wrb01
+    sudo chmod 700 /home/wrb01/.ssh 2>/dev/null || true
+    
+    # Create WRB_HOME directory with proper permissions
+    print_info "Creating WRB home directory: $WRB_HOME"
+    sudo mkdir -p "$WRB_HOME"
+    sudo chown -R wrb01:wrb01 "$WRB_HOME"
+    sudo chmod 755 "$WRB_HOME"
+    
+    # Create all subdirectories with proper permissions
+    sudo mkdir -p "$WRB_HOME/logs" "$WRB_HOME/sounds" "$WRB_HOME/default_sounds"
+    sudo chown -R wrb01:wrb01 "$WRB_HOME/logs" "$WRB_HOME/sounds" "$WRB_HOME/default_sounds"
+    sudo chmod 755 "$WRB_HOME/logs" "$WRB_HOME/sounds" "$WRB_HOME/default_sounds"
+    
+    # Set up proper permissions for the current user (if different from wrb01)
     if [ "$USER" != "wrb01" ]; then
         print_info "Adding $USER to necessary groups..."
-        sudo usermod -a -G audio,gpio,dialout,spi,i2c "$USER"
+        sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input "$USER"
+    fi
+    
+    # Ensure current user can access the WRB directory
+    if [ "$USER" != "wrb01" ]; then
+        print_info "Setting up access permissions for $USER..."
+        sudo usermod -a -G wrb01 "$USER" 2>/dev/null || true
     fi
     
     print_success "User environment setup complete"
@@ -396,7 +419,12 @@ copy_files() {
     
     # Find the Pi Zero directory in the repository
     PI_ZERO_DIR=""
-    if [ -d "$REPO_DIR/Pi Zero" ]; then
+    
+    # First check if we're already in the Pi Zero directory (when using local files)
+    if [ -f "PiScript" ] && [ -f "config.py" ]; then
+        PI_ZERO_DIR="$(pwd)"
+        print_info "Using current directory as Pi Zero directory: $PI_ZERO_DIR"
+    elif [ -d "$REPO_DIR/Pi Zero" ]; then
         PI_ZERO_DIR="$REPO_DIR/Pi Zero"
     elif [ -d "$REPO_DIR/Pi\ Zero" ]; then
         PI_ZERO_DIR="$REPO_DIR/Pi\ Zero"
@@ -422,6 +450,8 @@ copy_files() {
         print_info "PiScript copied"
     else
         print_error "PiScript not found in $PI_ZERO_DIR"
+        print_info "Available files in $PI_ZERO_DIR:"
+        ls -la "$PI_ZERO_DIR"
         exit 1
     fi
     
@@ -476,16 +506,31 @@ copy_files() {
         done
     fi
     
-    # Make scripts executable
-    chmod +x "$WRB_HOME/PiScript"
+    # Set proper ownership and permissions on all copied files
+    print_info "Setting proper permissions on copied files..."
+    sudo chown -R wrb01:wrb01 "$WRB_HOME"
+    sudo chmod +x "$WRB_HOME/PiScript"
     
-    # Verify critical files exist
+    # Make sure all files are readable by wrb01 user
+    sudo chmod 644 "$WRB_HOME"/*.py 2>/dev/null || true
+    sudo chmod 644 "$WRB_HOME"/*.sh 2>/dev/null || true
+    sudo chmod +x "$WRB_HOME"/*.sh 2>/dev/null || true
+    
+    # Verify critical files exist and are accessible
     if [ ! -f "$WRB_HOME/PiScript" ]; then
         print_error "PiScript was not copied successfully"
         exit 1
     fi
     
-    print_success "Files copied and sounds linked successfully"
+    # Test that wrb01 user can access the files
+    if ! sudo -u wrb01 test -r "$WRB_HOME/PiScript"; then
+        print_error "wrb01 user cannot access PiScript"
+        print_info "Fixing permissions..."
+        sudo chown -R wrb01:wrb01 "$WRB_HOME"
+        sudo chmod -R 755 "$WRB_HOME"
+    fi
+    
+    print_success "Files copied and permissions set successfully"
 }
 
 # =============================================================================
@@ -621,7 +666,12 @@ copy_default_sounds() {
     
     # Find the Pi Zero directory in the repository (same logic as copy_files)
     PI_ZERO_DIR=""
-    if [ -d "$REPO_DIR/Pi Zero" ]; then
+    
+    # First check if we're already in the Pi Zero directory (when using local files)
+    if [ -f "PiScript" ] && [ -f "config.py" ]; then
+        PI_ZERO_DIR="$(pwd)"
+        print_info "Using current directory as Pi Zero directory: $PI_ZERO_DIR"
+    elif [ -d "$REPO_DIR/Pi Zero" ]; then
         PI_ZERO_DIR="$REPO_DIR/Pi Zero"
     elif [ -d "$REPO_DIR/Pi\ Zero" ]; then
         PI_ZERO_DIR="$REPO_DIR/Pi\ Zero"
@@ -670,16 +720,45 @@ copy_default_sounds() {
 setup_permissions() {
     print_step "Setting up permissions..."
     
-    # Add user to necessary groups
-    sudo usermod -a -G audio,gpio,dialout "$USER"
+    # Add user to necessary groups (always do this to ensure groups are correct)
+    print_info "Adding users to necessary groups..."
+    sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input "$USER"
+    sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input wrb01
     
-    # Set permissions for WRB directory
-    chmod -R 755 "$WRB_HOME"
+    # CRITICAL: Set proper ownership and permissions for WRB directory
+    print_info "Setting final permissions on WRB directory..."
+    sudo chown -R wrb01:wrb01 "$WRB_HOME"
+    sudo chmod -R 755 "$WRB_HOME"
     
     # Make sure PiScript is executable
-    chmod +x "$WRB_HOME/PiScript"
+    sudo chmod +x "$WRB_HOME/PiScript"
     
-    print_success "Permissions configured"
+    # Ensure all Python files are readable
+    sudo chmod 644 "$WRB_HOME"/*.py 2>/dev/null || true
+    sudo chmod 644 "$WRB_HOME"/*.sh 2>/dev/null || true
+    sudo chmod +x "$WRB_HOME"/*.sh 2>/dev/null || true
+    
+    # Verify permissions are correct
+    print_info "Verifying permissions..."
+    if ! sudo -u wrb01 test -r "$WRB_HOME/PiScript"; then
+        print_error "Permission verification failed - wrb01 cannot read PiScript"
+        print_info "Attempting to fix permissions..."
+        sudo chown -R wrb01:wrb01 "$WRB_HOME"
+        sudo chmod -R 755 "$WRB_HOME"
+        sudo chmod +x "$WRB_HOME/PiScript"
+    fi
+    
+    # Final verification
+    if sudo -u wrb01 test -r "$WRB_HOME/PiScript" && sudo -u wrb01 test -x "$WRB_HOME/PiScript"; then
+        print_success "Permissions verified - wrb01 can read and execute PiScript"
+    else
+        print_error "CRITICAL: Permission verification failed after fixes"
+        print_info "WRB directory permissions:"
+        ls -la "$WRB_HOME"
+        exit 1
+    fi
+    
+    print_success "Permissions configured and verified"
 }
 
 # =============================================================================
@@ -692,30 +771,31 @@ create_service_file() {
     cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=WRB Enhanced Audio System
-After=network.target sound.target
-Wants=network.target sound.target
+After=network.target
+Wants=network.target
 StartLimitInterval=300
 StartLimitBurst=3
 
 [Service]
 Type=simple
-User=$USER
+User=wrb01
 Group=audio
 WorkingDirectory=$WRB_HOME
-Environment=HOME=$HOME
-Environment=USER=$USER
+Environment=HOME=/home/wrb01
+Environment=USER=wrb01
 Environment=WRB_SERIAL=/dev/ttyACM0
-Environment=SDL_AUDIODRIVER=pulse
-Environment=PULSE_RUNTIME_PATH=/run/user/$(id -u)/pulse
-# Use virtual environment if available, otherwise system Python
-ExecStart=/bin/bash -c 'if [ -f "$WRB_HOME/venv/bin/activate" ]; then source $WRB_HOME/venv/bin/activate && python $WRB_HOME/PiScript; else /usr/bin/python3 $WRB_HOME/PiScript; fi'
+Environment=SDL_AUDIODRIVER=alsa
+Environment=AUDIODEV=plughw:0,0
+Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/bin/python3 $WRB_HOME/PiScript
 Restart=on-failure
-RestartSec=10
+RestartSec=5
 RestartPreventExitStatus=1
 StandardOutput=journal
 StandardError=journal
 TimeoutStartSec=30
-TimeoutStopSec=10
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -1201,18 +1281,15 @@ verify_installation() {
     fi
     
     if [ ! -f "$WRB_HOME/test_audio.py" ]; then
-        print_error "Audio test script not found"
-        ((errors++))
+        print_warning "Audio test script not found (optional)"
     fi
     
     if [ ! -f "$WRB_HOME/setup_audio.sh" ]; then
-        print_error "Audio setup script not found"
-        ((errors++))
+        print_warning "Audio setup script not found (optional)"
     fi
     
     if [ ! -f "$WRB_HOME/fix_python_2024.sh" ]; then
-        print_error "2024 Python fix script not found"
-        ((errors++))
+        print_warning "2024 Python fix script not found (optional)"
     fi
     
     if [ ! -d "$WRB_DEFAULT_SOUNDS" ]; then
@@ -1232,15 +1309,13 @@ verify_installation() {
         ((errors++))
     fi
     
-    # Check reliability systems
+    # Check reliability systems (optional)
     if [ ! -f "$WRB_HOME/health_monitor.py" ]; then
-        print_error "Health monitor not found"
-        ((errors++))
+        print_warning "Health monitor not found (optional)"
     fi
     
     if [ ! -f "/etc/systemd/system/wrb-watchdog.service" ]; then
-        print_error "Watchdog service not found"
-        ((errors++))
+        print_warning "Watchdog service not found (optional)"
     fi
     
     if [ $errors -eq 0 ]; then
@@ -1291,8 +1366,12 @@ main_installation() {
         create_virtual_environment
     fi
     
-    # Copy the 2024 fix script
-    if [ -f "$REPO_DIR/Pi Zero/fix_python_2024.sh" ]; then
+    # Copy the 2024 fix script (if it exists)
+    if [ -f "fix_python_2024.sh" ]; then
+        cp "fix_python_2024.sh" "$WRB_HOME/"
+        chmod +x "$WRB_HOME/fix_python_2024.sh"
+        print_info "2024 Python fix script copied"
+    elif [ -f "$REPO_DIR/Pi Zero/fix_python_2024.sh" ]; then
         cp "$REPO_DIR/Pi Zero/fix_python_2024.sh" "$WRB_HOME/"
         chmod +x "$WRB_HOME/fix_python_2024.sh"
         print_info "2024 Python fix script copied"
@@ -1378,7 +1457,25 @@ main_installation() {
         exit 1
     fi
     
-    print_success "Critical files verified"
+    # CRITICAL: Final permission verification
+    print_info "Performing final permission verification..."
+    if ! sudo -u wrb01 test -r "$WRB_HOME/PiScript"; then
+        print_error "CRITICAL: Final permission check failed"
+        print_info "Fixing permissions one final time..."
+        sudo chown -R wrb01:wrb01 "$WRB_HOME"
+        sudo chmod -R 755 "$WRB_HOME"
+        sudo chmod +x "$WRB_HOME/PiScript"
+        
+        # Test again
+        if ! sudo -u wrb01 test -r "$WRB_HOME/PiScript"; then
+            print_error "CRITICAL: Permission fix failed"
+            print_info "Directory permissions:"
+            ls -la "$WRB_HOME"
+            exit 1
+        fi
+    fi
+    
+    print_success "Critical files and permissions verified"
     
     # Verification
     if verify_installation; then

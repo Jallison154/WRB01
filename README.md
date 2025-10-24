@@ -17,21 +17,19 @@ The WRB system provides a professional wireless button solution with:
 ### One-Command Installation
 
 ```bash
-# Install WRB system (recommended)
-curl -sSL https://raw.githubusercontent.com/Jallison154/TheBigWRB/Update-1.0/Pi%20Zero/install.sh | bash
-
-# Alternative installation method
-curl -sSL https://raw.githubusercontent.com/Jallison154/TheBigWRB/main/Pi%20Zero/install.sh | bash
-```
-
-### Manual Installation
-
-```bash
-# Clone repository
-git clone -b Update-1.0 https://github.com/Jallison154/TheBigWRB.git ~/TheBigWRB
-cd ~/TheBigWRB/Pi\ Zero
+# Clone repository and run installation
+git clone https://github.com/Jallison154/WRB01.git ~/WRB01
+cd ~/WRB01/Pi\ Zero
 chmod +x install.sh
 ./install.sh
+```
+
+**OR for offline installation (if you have network issues):**
+```bash
+# Copy the Pi Zero folder to your Pi, then:
+cd /path/to/Pi\ Zero
+chmod +x install.sh
+./install.sh --skip-repo
 ```
 
 ## 📋 Hardware Requirements
@@ -81,21 +79,19 @@ chmod +x install.sh
 ## 📁 Project Structure
 
 ```
-TheBigWRB/
+WRB01/
 ├── Transmitter/
-│   └── Transmitter_ESP32.ino    # Transmitter code
+│   └── Transmitter_ESP32_Working.ino    # Transmitter code
 ├── Receiver/
-│   └── Receiver_ESP32.ino       # Receiver code
+│   └── Receiver_ESP32_Working.ino       # Receiver code
 ├── Pi Zero/
 │   ├── install.sh               # Main installation script
 │   ├── PiScript                 # Main Python application
 │   ├── config.py                # Configuration file
-│   ├── monitor_system.py        # System monitoring
-│   ├── test_system.py           # System testing
-│   ├── create_test_sounds.py    # Test sound generator
 │   ├── requirements.txt         # Python dependencies
 │   ├── WRB-enhanced.service     # Systemd service
-│   └── default_sounds/          # Default sound files
+│   ├── Default Sounds/          # Default sound files
+│   └── INSTALLATION_GUIDE.md    # Detailed installation guide
 ├── MAC_Finder.ino               # MAC address utility
 └── README.md                    # This file
 ```
@@ -252,13 +248,9 @@ journalctl -u WRB-enhanced.service --since "1 hour ago"
 The system can be updated using git:
 
 ```bash
-# Update from Update-1.0 branch
-cd ~/WRB
-git pull origin Update-1.0
-
-# Update from main branch
-cd ~/WRB
-git pull origin main
+# Update from repository
+cd ~/WRB01
+git pull origin WRB01
 
 # Restart service after update
 sudo systemctl restart WRB-enhanced.service
@@ -266,8 +258,9 @@ sudo systemctl restart WRB-enhanced.service
 
 ### Manual Updates
 ```bash
-# Download latest version
-curl -sSL https://raw.githubusercontent.com/Jallison154/TheBigWRB/Update-1.0/Pi%20Zero/install.sh | bash
+# Re-run installation script
+cd ~/WRB01/Pi\ Zero
+./install.sh
 ```
 
 ## 📈 Performance Specifications
@@ -321,8 +314,8 @@ curl -sSL https://raw.githubusercontent.com/Jallison154/TheBigWRB/Update-1.0/Pi%
 
 ### Issues and Bug Reports
 Please report issues and bugs through the GitHub repository:
-- **Repository**: https://github.com/Jallison154/TheBigWRB
-- **Issues**: https://github.com/Jallison154/TheBigWRB/issues
+- **Repository**: https://github.com/Jallison154/WRB01
+- **Issues**: https://github.com/Jallison154/WRB01/issues
 
 ## 📄 License
 

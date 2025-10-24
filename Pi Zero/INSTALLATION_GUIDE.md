@@ -70,11 +70,12 @@ Follow the manual installation steps below for complete control over the process
 ```bash
 # Create wrb01 user
 sudo useradd -m -s /bin/bash wrb01
-sudo usermod -a -G audio,gpio,dialout,spi,i2c wrb01
+sudo usermod -a -G audio,gpio,dialout,spi,i2c,plugdev,render,input wrb01
 
 # Create directories
 sudo mkdir -p /home/wrb01/WRB/{logs,sounds,default_sounds}
 sudo chown -R wrb01:wrb01 /home/wrb01
+sudo chmod 755 /home/wrb01
 ```
 
 ### Step 2: System Update and Dependencies
@@ -98,13 +99,14 @@ pip3 install --user --break-system-packages pygame pyserial numpy RPi.GPIO psuti
 git clone https://github.com/Jallison154/WRB01.git /home/wrb01/WRB01
 
 # Copy files to WRB directory
-cp /home/wrb01/WRB01/Pi\ Zero/PiScript /home/wrb01/WRB/
-cp /home/wrb01/WRB01/Pi\ Zero/config.py /home/wrb01/WRB/
-cp -r /home/wrb01/WRB01/Pi\ Zero/Default\ Sounds/* /home/wrb01/WRB/default_sounds/
+sudo cp /home/wrb01/WRB01/Pi\ Zero/PiScript /home/wrb01/WRB/
+sudo cp /home/wrb01/WRB01/Pi\ Zero/config.py /home/wrb01/WRB/
+sudo cp -r /home/wrb01/WRB01/Pi\ Zero/Default\ Sounds/* /home/wrb01/WRB/default_sounds/
 
 # Set permissions
-chmod +x /home/wrb01/WRB/PiScript
 sudo chown -R wrb01:wrb01 /home/wrb01/WRB
+sudo chmod +x /home/wrb01/WRB/PiScript
+sudo chmod 755 /home/wrb01/WRB
 ```
 
 ### Step 4: Setup Audio System
@@ -132,15 +134,29 @@ sudo tee /etc/systemd/system/WRB-enhanced.service > /dev/null << EOF
 Description=WRB Enhanced Audio System
 After=network.target
 Wants=network.target
+StartLimitInterval=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
 User=wrb01
 Group=audio
 WorkingDirectory=/home/wrb01/WRB
+Environment=HOME=/home/wrb01
+Environment=USER=wrb01
+Environment=WRB_SERIAL=/dev/ttyACM0
+Environment=SDL_AUDIODRIVER=alsa
+Environment=AUDIODEV=plughw:0,0
+Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
+ExecStartPre=/bin/sleep 3
 ExecStart=/usr/bin/python3 /home/wrb01/WRB/PiScript
 Restart=on-failure
 RestartSec=5
+RestartPreventExitStatus=1
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30
+TimeoutStopSec=5
 
 [Install]
 WantedBy=multi-user.target
@@ -174,7 +190,7 @@ sudo systemctl start WRB-enhanced.service
 3. Note the MAC addresses displayed
 
 ### Step 4: Configure Transmitter
-1. Open `~/WRB01/Transmitter/Transmitter_ESP32.ino`
+1. Open `~/WRB01/Transmitter/Transmitter_ESP32_Working.ino`
 2. Update the receiver MAC address:
    ```cpp
    uint8_t RX_MAC[] = { 0x58, 0x8C, 0x81, 0x9E, 0x30, 0x10 }; // Your receiver MAC
@@ -182,7 +198,7 @@ sudo systemctl start WRB-enhanced.service
 3. Upload to your transmitter ESP32
 
 ### Step 5: Configure Receiver
-1. Open `~/WRB01/Receiver/Receiver_ESP32.ino`
+1. Open `~/WRB01/Receiver/Receiver_ESP32_Working.ino`
 2. Update the allowed transmitter MACs:
    ```cpp
    uint8_t ALLOWED_TX_MACS[][6] = {
@@ -413,7 +429,7 @@ free -h
 ```bash
 # Update from repository
 cd ~/WRB01
-git pull origin main
+git pull origin WRB01
 
 # Restart service
 sudo systemctl restart WRB-enhanced.service
@@ -423,7 +439,7 @@ sudo systemctl restart WRB-enhanced.service
 ```bash
 # Update repository and re-run installation
 cd ~/WRB01
-git pull origin main
+git pull origin WRB01
 cd Pi\ Zero
 ./install.sh
 ```
