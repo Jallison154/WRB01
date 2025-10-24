@@ -300,11 +300,18 @@ clone_repository() {
         rm -rf "$REPO_DIR"
     fi
     
-    # Create the parent directory if it doesn't exist
+    # Create the parent directory if it doesn't exist with proper permissions
     REPO_PARENT_DIR=$(dirname "$REPO_DIR")
     if [ ! -d "$REPO_PARENT_DIR" ]; then
         print_info "Creating parent directory: $REPO_PARENT_DIR"
         mkdir -p "$REPO_PARENT_DIR"
+        chmod 755 "$REPO_PARENT_DIR"
+    fi
+    
+    # Ensure the parent directory is writable
+    if [ ! -w "$REPO_PARENT_DIR" ]; then
+        print_info "Setting write permissions on parent directory"
+        chmod 755 "$REPO_PARENT_DIR"
     fi
     
     # Check if git is available
@@ -314,19 +321,26 @@ clone_repository() {
         exit 1
     fi
     
+    # Change to parent directory before cloning to avoid permission issues
+    cd "$REPO_PARENT_DIR" || {
+        print_error "Cannot access parent directory: $REPO_PARENT_DIR"
+        exit 1
+    }
+    
     # Try to clone WRB01 branch first
     print_info "Attempting to clone WRB01 branch..."
     print_info "Repository: $REPO_URL"
     print_info "Branch: $BRANCH_UPDATE"
     print_info "Target directory: $REPO_DIR"
+    print_info "Working from: $(pwd)"
     
-    if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$REPO_DIR"; then
+    if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$(basename "$REPO_DIR")"; then
         print_success "Successfully cloned WRB01 branch"
     else
         print_warning "WRB01 branch failed, trying without branch specification..."
-        if git clone "$REPO_URL" "$REPO_DIR"; then
+        if git clone "$REPO_URL" "$(basename "$REPO_DIR")"; then
             print_info "Cloned repository, checking out WRB01 branch..."
-            cd "$REPO_DIR"
+            cd "$(basename "$REPO_DIR")"
             if git checkout WRB01; then
                 print_success "Successfully checked out WRB01 branch"
             else
@@ -337,9 +351,14 @@ clone_repository() {
             print_error "Failed to clone repository"
             print_error "Please check your internet connection and try again"
             print_info "You can also try running with --skip-repo to use local files"
+            print_info "Current directory permissions:"
+            ls -la "$REPO_PARENT_DIR"
             exit 1
         fi
     fi
+    
+    # Return to original directory
+    cd - > /dev/null
 }
 
 # =============================================================================
@@ -1294,8 +1313,15 @@ main_installation() {
             exit 1
         fi
     else
-        test_repository_connection
-        clone_repository
+        # Check if we're already in a repository directory
+        if [ -f "PiScript" ] && [ -f "config.py" ]; then
+            print_info "Already in repository directory, using local files"
+            REPO_DIR="$(pwd)"
+            print_info "Using current directory as repository: $REPO_DIR"
+        else
+            test_repository_connection
+            clone_repository
+        fi
     fi
     
     # Directory and file setup
