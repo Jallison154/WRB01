@@ -54,7 +54,7 @@ print_success "System packages updated"
 
 # Install required packages
 print_step "Installing required packages..."
-sudo apt install -y python3-pygame python3-serial python3-numpy alsa-utils git
+sudo apt install -y python3-pygame python3-serial python3-numpy python3-gpiozero alsa-utils git
 print_success "Required packages installed"
 
 # Remove old installation and clone fresh repository
@@ -177,140 +177,231 @@ sudo cp "WRB01/Pi Zero/simple_audio_player.py" /home/wrb01/
 sudo chown wrb01:wrb01 /home/wrb01/simple_audio_player.py
 sudo chmod +x /home/wrb01/simple_audio_player.py
 
-# Update Python script to use USB audio as default
-print_info "Updating Python script for USB audio..."
+# Update Python script with robust audio handling
+print_info "Installing robust Python script..."
 sudo tee /home/wrb01/simple_audio_player.py > /dev/null << 'EOF'
 #!/usr/bin/env python3
 """
-Simple Audio Player for ESP32 Button System
-Reads serial commands and plays corresponding audio files
+WRB Simple Audio Player for ESP32 Button System
+Based on working mattsfx code with proper audio handling
 """
 
-import serial
-import pygame
-import time
-import os
+import os, glob, time, random, sys, serial
 
-# Audio file paths
-AUDIO_DIR = "/home/wrb01/audio"
-BUTTON1_FILE = os.path.join(AUDIO_DIR, "button1.wav")
-BUTTON2_FILE = os.path.join(AUDIO_DIR, "button2.wav")
-HOLD1_FILE = os.path.join(AUDIO_DIR, "hold1.wav")
-HOLD2_FILE = os.path.join(AUDIO_DIR, "hold2.wav")
+# ALSA device configuration
+os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
+os.environ.setdefault("AUDIODEV", "plughw:1,0")  # USB audio device
 
-def setup_audio():
-    """Initialize pygame audio system for USB audio interface"""
-    # Set environment variables for USB audio
-    os.environ['SDL_AUDIODRIVER'] = 'alsa'
-    os.environ['AUDIODEV'] = 'plughw:1,0'  # USB audio device (card 1, device 0)
+BAUD = 115200
+SERIAL = os.getenv("WRB_SERIAL", "/dev/ttyACM0")
+READY_PIN = 18
+READY_ACTIVE_LOW = True
+MIX_FREQ = 44100
+MIX_BUF = 256
+RESCAN_SEC = 1.0
+IDLE_SHUTOFF_SEC = 1.0   # close audio device this long after last cue
+
+# --- LED (simple on/off, active-low wiring) ---
+from gpiozero import LED
+led = LED(READY_PIN, active_high=(not READY_ACTIVE_LOW))
+
+def usb_mount_dirs():
+    base = "/media"
+    return [os.path.join(base, d) for d in sorted(os.listdir(base))
+            if os.path.isdir(os.path.join(base, d)) and os.path.ismount(os.path.join(base, d))] if os.path.isdir(base) else []
+
+def pick_source():
+    # Check USB drives first
+    for mnt in usb_mount_dirs():
+        button1 = sorted(glob.glob(os.path.join(mnt, "button1*.wav")))
+        button2 = sorted(glob.glob(os.path.join(mnt, "button2*.wav")))
+        hold1 = sorted(glob.glob(os.path.join(mnt, "hold1*.wav")))
+        hold2 = sorted(glob.glob(os.path.join(mnt, "hold2*.wav")))
+        if button1 or button2 or hold1 or hold2:
+            return (f"USB:{mnt}", button1[:1], button2[:1], hold1[:1], hold2[:1])
     
-    pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
-    print("Audio system initialized for USB audio interface")
+    # Fallback to local directory
+    local = "/home/wrb01/audio"
+    os.makedirs(local, exist_ok=True)
+    button1 = sorted(glob.glob(os.path.join(local, "button1*.wav")))
+    button2 = sorted(glob.glob(os.path.join(local, "button2*.wav")))
+    hold1 = sorted(glob.glob(os.path.join(local, "hold1*.wav")))
+    hold2 = sorted(glob.glob(os.path.join(local, "hold2*.wav")))
+    return ("LOCAL", button1[:1], button2[:1], hold1[:1], hold2[:1])
 
-def play_audio(file_path):
-    """Play audio file"""
-    try:
-        if os.path.exists(file_path):
-            pygame.mixer.music.load(file_path)
-            pygame.mixer.music.play()
-            print(f"Playing: {file_path}")
-        else:
-            print(f"Audio file not found: {file_path}")
-    except Exception as e:
-        print(f"Error playing audio: {e}")
+def classify(s):
+    u = s.strip().upper()
+    if "BTN1" in u or "BUTTON1" in u: return 'BTN1'
+    if "BTN2" in u or "BUTTON2" in u: return 'BTN2'
+    if "HOLD1" in u: return 'HOLD1'
+    if "HOLD2" in u: return 'HOLD2'
+    return None
 
-def test_usb_audio():
-    """Test USB audio interface"""
-    print("Testing USB audio interface...")
-    try:
-        # Test with a simple beep
-        import numpy as np
-        sample_rate = 44100
-        duration = 0.5
-        frequency = 440  # A note
-        
-        # Generate a simple tone
-        t = np.linspace(0, duration, int(sample_rate * duration), False)
-        wave = np.sin(frequency * 2 * np.pi * t)
-        wave = (wave * 32767).astype(np.int16)
-        
-        # Convert to stereo
-        stereo_wave = np.array([wave, wave]).T
-        
-        # Play the tone
-        pygame.sndarray.make_sound(stereo_wave).play()
-        pygame.time.wait(int(duration * 1000))
-        
-        print("✓ USB audio test passed")
-        return True
-    except Exception as e:
-        print(f"⚠ USB audio test failed: {e}")
-        return False
+# --- on-demand audio helpers (no background output) ---
+_mixer_ready = False
+_last_play = 0
+_button1_paths = []
+_button2_paths = []
+_hold1_paths = []
+_hold2_paths = []
+
+def set_paths(btn1, btn2, h1, h2):
+    global _button1_paths, _button2_paths, _hold1_paths, _hold2_paths
+    _button1_paths, _button2_paths, _hold1_paths, _hold2_paths = btn1, btn2, h1, h2
+
+def ensure_mixer():
+    global _mixer_ready
+    if _mixer_ready: return
+    import pygame
+    for i in range(8):
+        try:
+            pygame.mixer.init(frequency=MIX_FREQ, size=-16, channels=2, buffer=MIX_BUF)
+            _mixer_ready = True
+            print("[wrb] audio: mixer ready", flush=True)
+            return
+        except Exception as e:
+            print(f"[wrb] audio init retry {i+1}: {e}", flush=True)
+            time.sleep(0.2)
+    raise SystemExit("audio init failed")
+
+def shutdown_mixer_if_idle():
+    global _mixer_ready
+    if not _mixer_ready: return
+    import pygame
+    if (time.time() - _last_play) > IDLE_SHUTOFF_SEC and not pygame.mixer.get_busy():
+        pygame.mixer.quit()
+        _mixer_ready = False
+        print("[wrb] audio: mixer closed (idle)", flush=True)
+
+def play_button1():
+    global _last_play
+    if not _button1_paths:
+        print("[wrb] BUTTON1 (no file)", flush=True)
+        return
+    ensure_mixer()
+    import pygame
+    s = pygame.mixer.Sound(_button1_paths[0])
+    pygame.mixer.Channel(0).play(s)
+    _last_play = time.time()
+
+def play_button2():
+    global _last_play
+    if not _button2_paths:
+        print("[wrb] BUTTON2 (no file)", flush=True)
+        return
+    ensure_mixer()
+    import pygame
+    s = pygame.mixer.Sound(_button2_paths[0])
+    pygame.mixer.Channel(1).play(s)
+    _last_play = time.time()
+
+def play_hold1():
+    global _last_play
+    if not _hold1_paths:
+        print("[wrb] HOLD1 (no file)", flush=True)
+        return
+    ensure_mixer()
+    import pygame
+    s = pygame.mixer.Sound(_hold1_paths[0])
+    pygame.mixer.Channel(2).play(s)
+    _last_play = time.time()
+
+def play_hold2():
+    global _last_play
+    if not _hold2_paths:
+        print("[wrb] HOLD2 (no file)", flush=True)
+        return
+    ensure_mixer()
+    import pygame
+    s = pygame.mixer.Sound(_hold2_paths[0])
+    pygame.mixer.Channel(3).play(s)
+    _last_play = time.time()
+
+def wait_serial():
+    print("[wrb] waiting for serial…", flush=True)
+    prefs = [SERIAL, "/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/serial0", "/dev/ttyAMA0", "/dev/ttyS0"]
+    while True:
+        for p in prefs:
+            try:
+                return serial.Serial(p, BAUD, timeout=0.1)
+            except:
+                pass
+        time.sleep(0.3)
 
 def main():
-    print("Simple Audio Player Starting...")
-    print("Configured for USB audio interface")
-    
-    # Setup audio
-    setup_audio()
-    
-    # Test USB audio
-    test_usb_audio()
-    
-    # Test audio files
-    print("Testing audio files...")
-    if os.path.exists(BUTTON1_FILE):
-        print(f"✓ {BUTTON1_FILE} exists")
-    else:
-        print(f"✗ {BUTTON1_FILE} not found")
-    
-    if os.path.exists(BUTTON2_FILE):
-        print(f"✓ {BUTTON2_FILE} exists")
-    else:
-        print(f"✗ {BUTTON2_FILE} not found")
-    
-    # Setup serial connection
-    try:
-        ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
-        print("Serial connection established")
-    except Exception as e:
-        print(f"Serial connection failed: {e}")
-        return
-    
-    # Create audio directory if it doesn't exist
-    os.makedirs(AUDIO_DIR, exist_ok=True)
-    
-    print("Waiting for button presses...")
-    
+    led.off()  # OFF until ready
+
+    # source scan + initial paths (no mixer init yet)
+    tag, btn1, btn2, h1, h2 = pick_source()
+    set_paths(btn1, btn2, h1, h2)
+    print(f"[wrb] source={tag} btn1={btn1} btn2={btn2} hold1={h1} hold2={h2}", flush=True)
+
+    ser = wait_serial()
+    print(f"[wrb] serial: {ser.port}", flush=True)
+
+    led.on()
+    print("[wrb] READY", flush=True)
+    last_scan = time.time()
+
     while True:
+        # hot-swap (update file paths only)
+        if time.time() - last_scan > RESCAN_SEC:
+            ntag, nbtn1, nbtn2, nh1, nh2 = pick_source()
+            if (ntag != tag) or (nbtn1 != btn1) or (nbtn2 != btn2) or (nh1 != h1) or (nh2 != h2):
+                tag, btn1, btn2, h1, h2 = ntag, nbtn1, nbtn2, nh1, nh2
+                set_paths(btn1, btn2, h1, h2)
+                print(f"[wrb] reloaded: source={tag} btn1={btn1} btn2={btn2} hold1={h1} hold2={h2}", flush=True)
+            last_scan = time.time()
+
+        # read serial and play
         try:
-            # Read serial data
-            if ser.in_waiting > 0:
-                line = ser.readline().decode('utf-8').strip()
-                print(f"Received: '{line}' (length: {len(line)})")
-                
-                # Handle button commands (from ESP32 receiver)
-                if line.startswith("BTN"):
-                    button_num = line[3:]  # Extract number after "BTN"
-                    if button_num == "1":
-                        play_audio(BUTTON1_FILE)
-                    elif button_num == "2":
-                        play_audio(BUTTON2_FILE)
-                elif line.startswith("HOLD"):
-                    button_num = line[4:]  # Extract number after "HOLD"
-                    if button_num == "1":
-                        play_audio(HOLD1_FILE)  # Separate audio for hold
-                    elif button_num == "2":
-                        play_audio(HOLD2_FILE)  # Separate audio for hold
-            
-            time.sleep(0.01)  # Small delay
-            
-        except KeyboardInterrupt:
-            print("Stopping...")
-            break
-        except Exception as e:
-            print(f"Error: {e}")
-            time.sleep(1)
+            line = ser.readline().decode(errors="ignore")
+        except Exception:
+            time.sleep(0.05)
+            continue
+        if not line:
+            shutdown_mixer_if_idle()
+            continue
+
+        t = classify(line)
+        if t == 'BTN1':
+            print("[wrb] BUTTON1", flush=True)
+            play_button1()
+            try:
+                led.off()
+                time.sleep(0.04)
+                led.on()
+            except:
+                pass
+        elif t == 'BTN2':
+            print("[wrb] BUTTON2", flush=True)
+            play_button2()
+            try:
+                led.off()
+                time.sleep(0.04)
+                led.on()
+            except:
+                pass
+        elif t == 'HOLD1':
+            print("[wrb] HOLD1", flush=True)
+            play_hold1()
+            try:
+                led.off()
+                time.sleep(0.04)
+                led.on()
+            except:
+                pass
+        elif t == 'HOLD2':
+            print("[wrb] HOLD2", flush=True)
+            play_hold2()
+            try:
+                led.off()
+                time.sleep(0.04)
+                led.on()
+            except:
+                pass
+
+        shutdown_mixer_if_idle()
 
 if __name__ == "__main__":
     main()
@@ -418,6 +509,7 @@ Group=audio
 WorkingDirectory=/home/wrb01
 Environment=HOME=/home/wrb01
 Environment=USER=wrb01
+Environment=WRB_SERIAL=/dev/ttyACM0
 Environment=SDL_AUDIODRIVER=alsa
 Environment=AUDIODEV=plughw:1,0
 ExecStart=/usr/bin/python3 /home/wrb01/simple_audio_player.py
