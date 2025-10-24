@@ -600,14 +600,6 @@ def play_button1():
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
     
-    # Flash status LED for 200ms
-    status_led.value = 1.0  # Full brightness flash
-    import threading
-    def flash_off():
-        time.sleep(0.2)  # 200ms
-        status_led.value = 0.25  # Back to 25%
-    threading.Thread(target=flash_off, daemon=True).start()
-    
     # If already playing, fade it out over 1 second
     if 'button1' in _current_sounds:
         # Check if sound is actually still playing by checking the channel
@@ -622,6 +614,14 @@ def play_button1():
             # Sound has finished, remove from tracking
             print("[wrb] BUTTON1 sound finished, removing from tracking", flush=True)
             del _current_sounds['button1']
+    
+    # Flash status LED for 200ms (only if we're going to play new sound)
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
     
     # Play new sound
     ensure_mixer()
@@ -644,14 +644,6 @@ def play_button2():
         print("[wrb] BUTTON2 (no file)", flush=True)
         return
     
-    # Flash status LED for 200ms
-    status_led.value = 1.0  # Full brightness flash
-    import threading
-    def flash_off():
-        time.sleep(0.2)  # 200ms
-        status_led.value = 0.25  # Back to 25%
-    threading.Thread(target=flash_off, daemon=True).start()
-    
     # If already playing, fade it out over 1 second
     if 'button2' in _current_sounds:
         # Check if sound is actually still playing by checking the channel
@@ -666,6 +658,14 @@ def play_button2():
             # Sound has finished, remove from tracking
             print("[wrb] BUTTON2 sound finished, removing from tracking", flush=True)
             del _current_sounds['button2']
+    
+    # Flash status LED for 200ms (only if we're going to play new sound)
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
     
     # Play new sound
     ensure_mixer()
@@ -688,14 +688,6 @@ def play_hold1():
         print("[wrb] HOLD1 (no file)", flush=True)
         return
     
-    # Flash status LED for 200ms
-    status_led.value = 1.0  # Full brightness flash
-    import threading
-    def flash_off():
-        time.sleep(0.2)  # 200ms
-        status_led.value = 0.25  # Back to 25%
-    threading.Thread(target=flash_off, daemon=True).start()
-    
     # If already playing, fade it out over 1 second
     if 'hold1' in _current_sounds:
         # Check if sound is actually still playing by checking the channel
@@ -710,6 +702,14 @@ def play_hold1():
             # Sound has finished, remove from tracking
             print("[wrb] HOLD1 sound finished, removing from tracking", flush=True)
             del _current_sounds['hold1']
+    
+    # Flash status LED for 200ms (only if we're going to play new sound)
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
     
     # Play new sound
     ensure_mixer()
@@ -732,14 +732,6 @@ def play_hold2():
         print("[wrb] HOLD2 (no file)", flush=True)
         return
     
-    # Flash status LED for 200ms
-    status_led.value = 1.0  # Full brightness flash
-    import threading
-    def flash_off():
-        time.sleep(0.2)  # 200ms
-        status_led.value = 0.25  # Back to 25%
-    threading.Thread(target=flash_off, daemon=True).start()
-    
     # If already playing, fade it out over 1 second
     if 'hold2' in _current_sounds:
         # Check if sound is actually still playing by checking the channel
@@ -754,6 +746,14 @@ def play_hold2():
             # Sound has finished, remove from tracking
             print("[wrb] HOLD2 sound finished, removing from tracking", flush=True)
             del _current_sounds['hold2']
+    
+    # Flash status LED for 200ms (only if we're going to play new sound)
+    status_led.value = 1.0  # Full brightness flash
+    import threading
+    def flash_off():
+        time.sleep(0.2)  # 200ms
+        status_led.value = 0.25  # Back to 25%
+    threading.Thread(target=flash_off, daemon=True).start()
     
     # Play new sound
     ensure_mixer()
