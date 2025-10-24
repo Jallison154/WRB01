@@ -262,6 +262,13 @@ clone_repository() {
         rm -rf "$REPO_DIR"
     fi
     
+    # Create the parent directory if it doesn't exist
+    REPO_PARENT_DIR=$(dirname "$REPO_DIR")
+    if [ ! -d "$REPO_PARENT_DIR" ]; then
+        print_info "Creating parent directory: $REPO_PARENT_DIR"
+        mkdir -p "$REPO_PARENT_DIR"
+    fi
+    
     # Check if git is available
     if ! command -v git &> /dev/null; then
         print_error "Git is not installed. Please install git first:"
@@ -273,6 +280,7 @@ clone_repository() {
     print_info "Attempting to clone WRB01 branch..."
     print_info "Repository: $REPO_URL"
     print_info "Branch: $BRANCH_UPDATE"
+    print_info "Target directory: $REPO_DIR"
     
     if git clone -b "$BRANCH_UPDATE" "$REPO_URL" "$REPO_DIR"; then
         print_success "Successfully cloned WRB01 branch"
@@ -290,6 +298,7 @@ clone_repository() {
         else
             print_error "Failed to clone repository"
             print_error "Please check your internet connection and try again"
+            print_info "You can also try running with --skip-repo to use local files"
             exit 1
         fi
     fi
