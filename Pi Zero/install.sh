@@ -73,9 +73,47 @@ print_warning() {
 check_root() {
     if [[ $EUID -eq 0 ]]; then
         print_error "This script should not be run as root"
-        print_info "Please run as a regular user (pi)"
+        print_info "Please run as a regular user (pi or wrb01)"
         exit 1
     fi
+}
+
+# Setup user and directories automatically
+setup_user_environment() {
+    print_step "Setting up user environment..."
+    
+    # Check if we're running as the correct user
+    if [ "$USER" != "wrb01" ] && [ "$USER" != "pi" ]; then
+        print_warning "Running as user: $USER"
+        print_info "This script is designed for 'wrb01' or 'pi' user"
+        print_info "Continuing anyway..."
+    fi
+    
+    # Create wrb01 user if it doesn't exist
+    if ! id "wrb01" &>/dev/null; then
+        print_info "Creating wrb01 user..."
+        sudo useradd -m -s /bin/bash wrb01
+        sudo usermod -a -G audio,gpio,dialout,spi,i2c wrb01
+        print_success "wrb01 user created"
+    else
+        print_info "wrb01 user already exists"
+    fi
+    
+    # Ensure home directory exists and has proper permissions
+    if [ ! -d "/home/wrb01" ]; then
+        print_info "Creating /home/wrb01 directory..."
+        sudo mkdir -p /home/wrb01
+        sudo chown -R wrb01:wrb01 /home/wrb01
+        sudo chmod 755 /home/wrb01
+    fi
+    
+    # Set up proper permissions for the current user
+    if [ "$USER" != "wrb01" ]; then
+        print_info "Adding $USER to necessary groups..."
+        sudo usermod -a -G audio,gpio,dialout,spi,i2c "$USER"
+    fi
+    
+    print_success "User environment setup complete"
 }
 
 # Check if running on Raspberry Pi
@@ -1221,6 +1259,7 @@ main_installation() {
     # Pre-installation checks
     check_root
     check_raspberry_pi
+    setup_user_environment
     check_internet
     
     # System preparation
@@ -1250,6 +1289,8 @@ main_installation() {
         else
             print_error "PiScript not found in current directory"
             print_info "Please run this script from the Pi Zero directory or provide --help for options"
+            print_info "Current directory contents:"
+            ls -la
             exit 1
         fi
     else
@@ -1279,6 +1320,7 @@ main_installation() {
     # Service setup
     create_service_file
     enable_service
+    start_service
     
     # Start reliability services
     print_step "Starting reliability services..."
@@ -1316,10 +1358,18 @@ main_installation() {
     if verify_installation; then
         print_success "WRB Enhanced Audio System installed successfully!"
         echo
-        print_info "The system will start automatically on boot"
-        print_info "To start the service now, run: sudo systemctl start $SERVICE_NAME"
-        print_info "To check service status, run: sudo systemctl status $SERVICE_NAME"
-        print_info "To view logs, run: sudo journalctl -u $SERVICE_NAME -f"
+        print_info "=== INSTALLATION COMPLETE ==="
+        print_info "✓ All files copied to: $WRB_HOME"
+        print_info "✓ Service enabled for automatic startup"
+        print_info "✓ Service is currently running"
+        print_info "✓ System will start automatically on boot"
+        echo
+        print_info "=== USEFUL COMMANDS ==="
+        print_info "Check service status: sudo systemctl status $SERVICE_NAME"
+        print_info "View service logs: sudo journalctl -u $SERVICE_NAME -f"
+        print_info "Restart service: sudo systemctl restart $SERVICE_NAME"
+        print_info "Stop service: sudo systemctl stop $SERVICE_NAME"
+        print_info "Start service: sudo systemctl start $SERVICE_NAME"
         echo
         print_info "=== RELIABILITY FEATURES ENABLED ==="
         print_info "✓ Hardware watchdog monitoring"
