@@ -1232,8 +1232,21 @@ main_installation() {
     fi
     
     # Repository setup
-    test_repository_connection
-    clone_repository
+    if [ "${1:-}" = "--skip-repo" ]; then
+        print_info "Skipping repository cloning (using local files)"
+        # Set REPO_DIR to current directory if we're running from the Pi Zero directory
+        if [ -f "PiScript" ]; then
+            REPO_DIR="$(pwd)"
+            print_info "Using current directory as repository: $REPO_DIR"
+        else
+            print_error "PiScript not found in current directory"
+            print_info "Please run this script from the Pi Zero directory or provide --help for options"
+            exit 1
+        fi
+    else
+        test_repository_connection
+        clone_repository
+    fi
     
     # Directory and file setup
     create_directories
@@ -1343,6 +1356,7 @@ case "${1:-}" in
         echo "  --version, -v  Show version information"
         echo "  --verify       Verify installation without installing"
         echo "  --venv         Use Python virtual environment (recommended for externally managed environments)"
+        echo "  --skip-repo    Skip repository cloning and use local files (for offline installation)"
         echo
         exit 0
         ;;
