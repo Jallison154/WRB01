@@ -8,7 +8,7 @@ Robust ESP32 button control with professional audio playback system.
 - **LED Status** - GPIO 18 LED shows system status and activity
 - **Robust Error Handling** - Continues working even with errors
 - **Multiple Serial Ports** - Automatically detects ESP32 connection
-- **Idle Power Saving** - Closes audio when not in use
+- **Always-Active Audio** - Mixer stays ready for instant response
 - **USB Drive Support** - Automatically detects audio files on USB drives
 
 ## Files

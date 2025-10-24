@@ -35,7 +35,7 @@ chmod +x easy_install.sh
 💡 **LED Status** - GPIO 18 LED shows system status  
 🛡️ **Robust Error Handling** - Continues working even with errors  
 🔌 **Multiple Serial Ports** - Automatically detects ESP32  
-⚡ **Idle Power Saving** - Closes audio when not in use  
+⚡ **Always-Active Audio** - Mixer stays ready for instant response  
 💾 **USB Drive Support** - Automatically detects audio files on USB drives  
 
 ## After Installation:

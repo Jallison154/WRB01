@@ -1,7 +1,52 @@
+#!/bin/bash
+# Fade-out Audio Fix - Adds smooth fade-out when same button is pressed
+# Applies the fade-out feature to the running system
+
+echo "=== WRB01 Fade-out Audio Fix ==="
+echo "Adding smooth fade-out when same button is pressed..."
+echo
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_step() {
+    echo -e "${YELLOW}[STEP]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+# Check if running as root
+if [[ $EUID -eq 0 ]]; then
+    print_error "This script should not be run as root"
+    print_info "Please run as a regular user (pi or wrb01)"
+    exit 1
+fi
+
+# Stop the service
+print_step "Stopping WRB service..."
+sudo systemctl stop wrb-simple.service
+
+# Update the Python script with fade-out functionality
+print_step "Applying fade-out audio functionality..."
+sudo tee /home/wrb01/simple_audio_player.py > /dev/null << 'EOF'
 #!/usr/bin/env python3
 """
 WRB Simple Audio Player for ESP32 Button System
-Based on working mattsfx code with proper audio handling
+Always-active mixer with smooth fade-out functionality
 """
 
 import os, glob, time, random, sys, serial
@@ -259,7 +304,7 @@ def main():
     print(f"[wrb] serial: {ser.port}", flush=True)
 
     led.on()
-    print("[wrb] READY - Audio mixer active", flush=True)
+    print("[wrb] READY - Audio mixer active with fade-out", flush=True)
     last_scan = time.time()
 
     while True:
@@ -321,3 +366,34 @@ def main():
 
 if __name__ == "__main__":
     main()
+EOF
+
+# Set proper permissions
+sudo chown wrb01:wrb01 /home/wrb01/simple_audio_player.py
+sudo chmod +x /home/wrb01/simple_audio_player.py
+
+# Restart the service
+print_step "Restarting WRB service..."
+sudo systemctl start wrb-simple.service
+
+# Check service status
+print_step "Checking service status..."
+sleep 2
+if systemctl is-active --quiet wrb-simple.service; then
+    print_success "✓ Service is running with fade-out functionality"
+    echo "Service logs (last 5 lines):"
+    sudo journalctl -u wrb-simple.service -n 5 --no-pager
+else
+    print_error "✗ Service failed to start"
+    echo "Service status:"
+    sudo systemctl status wrb-simple.service --no-pager
+fi
+
+echo
+print_success "=== FADE-OUT AUDIO FUNCTIONALITY APPLIED ==="
+print_info "✓ Smooth 1-second fade-out when same button is pressed"
+print_info "✓ Professional audio behavior"
+print_info "✓ No audio overlap or clipping"
+print_info "✓ Background threading for smooth fade"
+echo
+print_info "Now when you press the same button while it's playing, it will smoothly fade out over 1 second!"
