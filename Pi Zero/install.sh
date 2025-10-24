@@ -1111,7 +1111,7 @@ create_watchdog_service() {
     print_step "Creating watchdog service..."
     
     # Create service file with proper permissions
-    sudo bash -c 'cat > "/etc/systemd/system/wrb-watchdog.service" << EOF
+    sudo bash -c "cat > '/etc/systemd/system/wrb-watchdog.service' << EOF
 [Unit]
 Description=WRB System Watchdog
 After=network.target WRB-enhanced.service
@@ -1132,7 +1132,7 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF"
     
     # Enable watchdog service
     sudo systemctl daemon-reload
@@ -1145,7 +1145,7 @@ setup_log_rotation() {
     print_step "Setting up log rotation..."
     
     # Create logrotate config with proper permissions
-    sudo bash -c 'cat > "/etc/logrotate.d/wrb" << EOF
+    sudo bash -c "cat > '/etc/logrotate.d/wrb' << EOF
 $WRB_HOME/logs/*.log {
     daily
     missingok
@@ -1158,7 +1158,7 @@ $WRB_HOME/logs/*.log {
         systemctl reload WRB-enhanced.service > /dev/null 2>&1 || true
     endscript
 }
-EOF'
+EOF"
     
     print_success "Log rotation configured"
 }
@@ -1238,7 +1238,7 @@ EOF
     
     # Create network monitor service
     # Create service file with proper permissions
-    sudo bash -c 'cat > "/etc/systemd/system/wrb-network-monitor.service" << EOF
+    sudo bash -c "cat > '/etc/systemd/system/wrb-network-monitor.service' << EOF
 [Unit]
 Description=WRB Network Monitor
 After=network.target
@@ -1255,7 +1255,7 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF"
     
     sudo systemctl daemon-reload
     sudo systemctl enable wrb-network-monitor.service
@@ -1553,6 +1553,12 @@ case "${1:-}" in
         print_header
         verify_installation
         exit $?
+        ;;
+    --skip-repo)
+        main_installation --skip-repo
+        ;;
+    --venv)
+        main_installation "" --venv
         ;;
     "")
         main_installation
