@@ -629,8 +629,10 @@ def play_button1():
     import pygame
     s = pygame.mixer.Sound(_button1_paths[0])
     channel = pygame.mixer.Channel(0)
-    # Reset channel volume to full before playing
+    # CRITICAL: Reset channel volume to full before playing
     channel.set_volume(1.0)
+    # Stop any existing sound on this channel first
+    channel.stop()
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -672,8 +674,10 @@ def play_button2():
     import pygame
     s = pygame.mixer.Sound(_button2_paths[0])
     channel = pygame.mixer.Channel(1)
-    # Reset channel volume to full before playing
+    # CRITICAL: Reset channel volume to full before playing
     channel.set_volume(1.0)
+    # Stop any existing sound on this channel first
+    channel.stop()
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -715,8 +719,10 @@ def play_hold1():
     import pygame
     s = pygame.mixer.Sound(_hold1_paths[0])
     channel = pygame.mixer.Channel(2)
-    # Reset channel volume to full before playing
+    # CRITICAL: Reset channel volume to full before playing
     channel.set_volume(1.0)
+    # Stop any existing sound on this channel first
+    channel.stop()
     channel.play(s)
     
     # Track the sound for fade-out capability
@@ -758,8 +764,10 @@ def play_hold2():
     import pygame
     s = pygame.mixer.Sound(_hold2_paths[0])
     channel = pygame.mixer.Channel(3)
-    # Reset channel volume to full before playing
+    # CRITICAL: Reset channel volume to full before playing
     channel.set_volume(1.0)
+    # Stop any existing sound on this channel first
+    channel.stop()
     channel.play(s)
     
     # Track the sound for fade-out capability
