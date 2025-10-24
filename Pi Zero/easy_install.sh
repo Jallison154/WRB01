@@ -435,12 +435,13 @@ def play_button1():
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
     
-    # Stop current button1 sound if playing
+    # If already playing, stop it
     if 'button1' in _current_sounds:
-        print("[wrb] BUTTON1 stopping previous sound", flush=True)
+        print("[wrb] BUTTON1 stopping current sound", flush=True)
         stop_current_sound('button1')
-        time.sleep(0.1)  # Brief pause to ensure stop completes
+        return  # Just stop, don't play new sound
     
+    # Play new sound
     ensure_mixer()
     import pygame
     s = pygame.mixer.Sound(_button1_paths[0])
@@ -457,12 +458,13 @@ def play_button2():
         print("[wrb] BUTTON2 (no file)", flush=True)
         return
     
-    # Stop current button2 sound if playing
+    # If already playing, stop it
     if 'button2' in _current_sounds:
-        print("[wrb] BUTTON2 stopping previous sound", flush=True)
+        print("[wrb] BUTTON2 stopping current sound", flush=True)
         stop_current_sound('button2')
-        time.sleep(0.1)  # Brief pause to ensure stop completes
+        return  # Just stop, don't play new sound
     
+    # Play new sound
     ensure_mixer()
     import pygame
     s = pygame.mixer.Sound(_button2_paths[0])
@@ -479,12 +481,13 @@ def play_hold1():
         print("[wrb] HOLD1 (no file)", flush=True)
         return
     
-    # Stop current hold1 sound if playing
+    # If already playing, stop it
     if 'hold1' in _current_sounds:
-        print("[wrb] HOLD1 stopping previous sound", flush=True)
+        print("[wrb] HOLD1 stopping current sound", flush=True)
         stop_current_sound('hold1')
-        time.sleep(0.1)  # Brief pause to ensure stop completes
+        return  # Just stop, don't play new sound
     
+    # Play new sound
     ensure_mixer()
     import pygame
     s = pygame.mixer.Sound(_hold1_paths[0])
@@ -501,12 +504,13 @@ def play_hold2():
         print("[wrb] HOLD2 (no file)", flush=True)
         return
     
-    # Stop current hold2 sound if playing
+    # If already playing, stop it
     if 'hold2' in _current_sounds:
-        print("[wrb] HOLD2 stopping previous sound", flush=True)
+        print("[wrb] HOLD2 stopping current sound", flush=True)
         stop_current_sound('hold2')
-        time.sleep(0.1)  # Brief pause to ensure stop completes
+        return  # Just stop, don't play new sound
     
+    # Play new sound
     ensure_mixer()
     import pygame
     s = pygame.mixer.Sound(_hold2_paths[0])
