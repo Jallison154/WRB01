@@ -173,7 +173,7 @@ update_system() {
 install_dependencies() {
     print_step "Installing required packages..."
     
-    # Essential packages - optimized for Pi Zero W
+    # Essential packages - optimized for Pi Zero 2 W
     PACKAGES=(
         "python3"
         "python3-pip"
@@ -186,8 +186,6 @@ install_dependencies() {
         "wget"
         "unzip"
         "alsa-utils"
-        "pulseaudio"
-        "pulseaudio-utils"
         "libasound2-dev"
         "portaudio19-dev"
         "python3-setuptools"
@@ -285,7 +283,7 @@ echo "Virtual environment activated"
 echo "Run: python PiScript"
 EOF
     
-    chmod +x "$WRB_HOME/activate_venv.sh"
+    sudo chmod +x "$WRB_HOME/activate_venv.sh"
     
     print_success "Virtual environment created at $WRB_HOME/venv"
     print_info "To use virtual environment: source $WRB_HOME/activate_venv.sh"
@@ -479,7 +477,7 @@ copy_files() {
     
     if [ -f "$PI_ZERO_DIR/setup_audio.sh" ]; then
         sudo cp "$PI_ZERO_DIR/setup_audio.sh" "$WRB_HOME/"
-        chmod +x "$WRB_HOME/setup_audio.sh"
+        sudo chmod +x "$WRB_HOME/setup_audio.sh"
         print_info "Audio setup script copied"
     fi
     
@@ -547,39 +545,26 @@ copy_files() {
 # =============================================================================
 
 setup_audio() {
-    print_step "Setting up audio system for Pi Zero W..."
+    print_step "Setting up audio system for Pi Zero 2 W (ALSA only)..."
     
-    # Add user to audio groups
-    sudo usermod -a -G audio,pulse,pulse-access "$USER"
+    # Add user to audio groups only
+    sudo usermod -a -G audio "$USER"
     
-    # Configure PulseAudio for Pi Zero W
-    print_info "Configuring PulseAudio..."
-    mkdir -p ~/.config/pulse
-    cat > ~/.config/pulse/daemon.conf << EOF
-# PulseAudio daemon configuration for Pi Zero W
-default-sample-rate = 44100
-default-sample-format = s16le
-default-sample-channels = 2
-default-fragments = 4
-default-fragment-size-msec = 25
-high-priority = yes
-nice-level = -11
-realtime-scheduling = yes
-realtime-priority = 9
-rlimit-rt = 9
-daemonize = no
-avoid-resampling = yes
-EOF
+    # Skip PulseAudio entirely and use ALSA directly
+    print_info "Configuring ALSA directly (skipping PulseAudio)..."
     
-    # Configure ALSA with fallback support
-    print_info "Configuring ALSA..."
+    # Configure ALSA directly (no PulseAudio)
+    print_info "Configuring ALSA directly..."
     sudo tee /etc/asound.conf > /dev/null << EOF
-# ALSA configuration for Pi Zero W
+# ALSA configuration for Pi Zero 2 W (direct hardware access)
 pcm.!default {
-    type pulse
+    type hw
+    card 0
+    device 0
 }
 ctl.!default {
-    type pulse
+    type hw
+    card 0
 }
 
 # USB audio support
@@ -607,36 +592,42 @@ ctl.hdmi {
 }
 EOF
     
-    # Enable PulseAudio user service
-    print_info "Enabling PulseAudio user service..."
-    systemctl --user enable pulseaudio
-    systemctl --user start pulseaudio
+    # Skip PulseAudio service (using ALSA directly)
+    print_info "Skipping PulseAudio service (using ALSA directly)..."
     
     # Configure HDMI audio if using HDMI display
-    print_info "Configuring HDMI audio..."
+    print_info "Configuring HDMI audio for Pi Zero 2 W..."
     if [ -f /boot/config.txt ]; then
         # Enable HDMI audio
         if ! grep -q "hdmi_drive=2" /boot/config.txt; then
             echo "hdmi_drive=2" | sudo tee -a /boot/config.txt
         fi
         
-        # Disable audio jack (if using HDMI)
-        if ! grep -q "dtparam=audio=off" /boot/config.txt; then
-            echo "dtparam=audio=off" | sudo tee -a /boot/config.txt
+        # Pi Zero 2 W specific audio optimizations
+        if ! grep -q "dtparam=audio=on" /boot/config.txt; then
+            echo "dtparam=audio=on" | sudo tee -a /boot/config.txt
+        fi
+        
+        # Enable audio optimizations for Pi Zero 2 W
+        if ! grep -q "audio_pwm_mode=2" /boot/config.txt; then
+            echo "audio_pwm_mode=2" | sudo tee -a /boot/config.txt
         fi
     fi
     
-    # Set up audio environment variables
-    print_info "Setting up audio environment..."
+    # Set up audio environment variables for ALSA
+    print_info "Setting up ALSA environment for Pi Zero 2 W..."
     cat >> ~/.bashrc << 'EOF'
 
-# WRB Audio Environment Variables
-export SDL_AUDIODRIVER=pulse
-export PULSE_RUNTIME_PATH=/run/user/$(id -u)/pulse
+# WRB Audio Environment Variables (ALSA) - Pi Zero 2 W optimized
+export SDL_AUDIODRIVER=alsa
 export AUDIODEV=plughw:0,0
+export PYGAME_HIDE_SUPPORT_PROMPT=1
+# Pi Zero 2 W specific optimizations
+export SDL_AUDIO_FREQUENCY=44100
+export SDL_AUDIO_CHANNELS=2
 EOF
     
-    print_success "Audio system configured for Pi Zero W"
+    print_success "Audio system configured for Pi Zero 2 W"
 }
 
 test_audio_system() {
@@ -656,17 +647,17 @@ test_audio_system() {
     fi
     
     # Test basic audio commands
-    print_info "Testing basic audio commands..."
+    print_info "Testing ALSA audio commands..."
     if command -v aplay >/dev/null 2>&1; then
         print_info "ALSA audio tools available"
+        # Test with a simple sound
+        if aplay -q /usr/share/sounds/alsa/Front_Left.wav 2>/dev/null; then
+            print_success "ALSA audio test passed"
+        else
+            print_warning "ALSA audio test failed - check audio hardware"
+        fi
     else
         print_warning "ALSA audio tools not available"
-    fi
-    
-    if command -v pactl >/dev/null 2>&1; then
-        print_info "PulseAudio tools available"
-    else
-        print_warning "PulseAudio tools not available"
     fi
 }
 
@@ -1112,7 +1103,7 @@ if __name__ == "__main__":
     main()
 EOF
     
-    chmod +x "$WRB_HOME/health_monitor.py"
+    sudo chmod +x "$WRB_HOME/health_monitor.py"
     print_success "Health monitoring script created"
 }
 
@@ -1241,7 +1232,7 @@ if __name__ == "__main__":
     monitor.monitor()
 EOF
     
-    chmod +x "$WRB_HOME/network_monitor.py"
+    sudo chmod +x "$WRB_HOME/network_monitor.py"
     
     # Create network monitor service
     cat > "/etc/systemd/system/wrb-network-monitor.service" << EOF
@@ -1378,11 +1369,11 @@ main_installation() {
     # Copy the 2024 fix script (if it exists)
     if [ -f "fix_python_2024.sh" ]; then
         sudo cp "fix_python_2024.sh" "$WRB_HOME/"
-        chmod +x "$WRB_HOME/fix_python_2024.sh"
+        sudo chmod +x "$WRB_HOME/fix_python_2024.sh"
         print_info "2024 Python fix script copied"
     elif [ -f "$REPO_DIR/Pi Zero/fix_python_2024.sh" ]; then
         sudo cp "$REPO_DIR/Pi Zero/fix_python_2024.sh" "$WRB_HOME/"
-        chmod +x "$WRB_HOME/fix_python_2024.sh"
+        sudo chmod +x "$WRB_HOME/fix_python_2024.sh"
         print_info "2024 Python fix script copied"
     fi
     
@@ -1511,8 +1502,8 @@ main_installation() {
         print_info "✓ Log rotation to prevent disk space issues"
         print_info "✓ ESP32 serial connection monitoring"
         print_info "✓ Audio system health checks"
-        print_info "✓ Pi Zero W optimized audio system"
-        print_info "✓ PulseAudio and ALSA support"
+        print_info "✓ Pi Zero 2 W optimized audio system"
+        print_info "✓ ALSA audio support"
         print_info "✓ USB and HDMI audio support"
         print_info "✓ Comprehensive audio testing"
         print_info "✓ 2024 Python environment fixes"
