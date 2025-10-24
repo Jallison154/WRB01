@@ -771,15 +771,20 @@ def play_hold2():
     _last_play = time.time()
 
 def wait_serial():
-    print("[wrb] waiting for serial…", flush=True)
+    print("[wrb] checking for serial…", flush=True)
     prefs = [SERIAL, "/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/serial0", "/dev/ttyAMA0", "/dev/ttyS0"]
-    while True:
-        for p in prefs:
-            try:
-                return serial.Serial(p, BAUD, timeout=0.1)
-            except:
-                pass
-        time.sleep(0.3)
+    # Quick check for serial (don't block boot)
+    for p in prefs:
+        try:
+            ser = serial.Serial(p, BAUD, timeout=0.1)
+            print(f"[wrb] serial found: {p}", flush=True)
+            return ser
+        except:
+            pass
+    
+    # If no serial found, start anyway (no blocking)
+    print("[wrb] No serial device found, starting without serial...", flush=True)
+    return None
 
 def main():
     led.off()  # OFF until ready
@@ -798,7 +803,10 @@ def main():
     print(f"[wrb] source={tag} btn1={btn1} btn2={btn2} hold1={h1} hold2={h2}", flush=True)
 
     ser = wait_serial()
-    print(f"[wrb] serial: {ser.port}", flush=True)
+    if ser:
+        print(f"[wrb] serial: {ser.port}", flush=True)
+    else:
+        print("[wrb] serial: None (starting without serial)", flush=True)
 
     led.on()
     print("[wrb] READY - Audio mixer active", flush=True)
@@ -957,9 +965,8 @@ print_step "Creating optimized systemd service..."
 sudo tee /etc/systemd/system/wrb-simple.service > /dev/null << EOF
 [Unit]
 Description=WRB Simple Audio Player
-After=network-online.target sound.target
-Wants=network-online.target
-# High priority for faster startup
+After=local-fs.target
+# Start immediately after filesystem (no network dependency)
 DefaultDependencies=no
 
 [Service]
@@ -999,6 +1006,61 @@ print_success "Systemd service created and started"
 # Optimize boot time
 print_step "Optimizing boot time..."
 optimize_boot_time
+
+# Additional startup optimizations
+print_step "Adding additional startup optimizations..."
+
+# Disable unnecessary services that slow down boot
+print_info "Disabling additional services for faster boot..."
+sudo systemctl disable bluetooth.service 2>/dev/null || true
+sudo systemctl disable hciuart.service 2>/dev/null || true
+sudo systemctl disable ModemManager.service 2>/dev/null || true
+sudo systemctl disable avahi-daemon.service 2>/dev/null || true
+sudo systemctl disable cups.service 2>/dev/null || true
+sudo systemctl disable cups-browsed.service 2>/dev/null || true
+sudo systemctl disable triggerhappy.service 2>/dev/null || true
+sudo systemctl disable dphys-swapfile.service 2>/dev/null || true
+sudo systemctl disable rpi-eeprom-update.service 2>/dev/null || true
+
+# Optimize systemd for even faster startup
+print_info "Applying additional systemd optimizations..."
+sudo tee /etc/systemd/system.conf.d/20-wrb-fast.conf > /dev/null << EOF
+[Manager]
+DefaultTimeoutStartSec=5s
+DefaultTimeoutStopSec=3s
+DefaultRestartSec=1s
+EOF
+
+# Set service to start immediately after filesystem (no network dependency)
+print_info "Setting service to start immediately after filesystem..."
+sudo systemctl edit wrb-simple.service --force << EOF
+[Unit]
+After=local-fs.target
+Before=multi-user.target
+# No network dependency for offline operation
+EOF
+
+sudo systemctl daemon-reload
+
+# Keep network services but make them start after audio service
+print_info "Configuring network services to start after audio service..."
+# Don't disable network services, just make them start later
+sudo systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
+sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
+
+# Set network services to start after our service
+print_info "Setting network services to start after audio service..."
+sudo systemctl edit systemd-networkd.service --force << EOF
+[Unit]
+After=wrb-simple.service
+EOF
+
+sudo systemctl edit dhcpcd.service --force << EOF
+[Unit]
+After=wrb-simple.service
+EOF
+
+sudo systemctl daemon-reload
 
 # Final verification
 print_step "Performing final verification..."
