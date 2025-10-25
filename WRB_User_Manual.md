@@ -1,157 +1,137 @@
 # WRB01 User Manual
 ## Wireless Remote Button System
 
-**Quick Start Guide for the WRB01 Professional Button + Audio System**
+**Professional wireless button system with instant audio feedback**
 
 ---
 
 ## 🎯 What is WRB01?
 
-The WRB01 is a wireless button system that plays audio when you press buttons. It consists of:
-- **2 ESP32 devices** (transmitter + receiver)
-- **Raspberry Pi** (audio player)
-- **2 buttons** (for triggering sounds)
+The WRB01 is a wireless button system that plays custom audio when you press buttons. Perfect for:
+- **Podcasters** - Sound effects and transitions
+- **Streamers** - Alert sounds and notifications  
+- **Presenters** - Audio cues and effects
+- **Content Creators** - Custom sound triggers
 
-**How it works:** Press button → ESP32 sends signal → Pi plays sound
+**How it works:** Press button → Hear your custom sound instantly
 
 ---
 
 ## 📋 What You Need
 
-### Hardware
-- **2x Seeed Studio XIAO ESP32C3** boards
-- **2x Push buttons**
-- **2x LEDs** (for status)
-- **2x 220Ω resistors**
-- **Raspberry Pi Zero/3/4/5** with Raspberry Pi OS
-- **MicroSD card** (8GB+)
-- **Breadboard and jumper wires**
-- **2x AA batteries** (for transmitter)
+### Complete WRB01 Kit
+- **Wireless Transmitter** - Battery-powered button unit
+- **Receiver Unit** - Connects to your computer
+- **Raspberry Pi** - Audio processing unit
+- **Audio System** - Plays your custom sounds
+- **Setup Software** - One-command installation
 
-### Software
-- Arduino IDE (for ESP32 programming)
-- Internet connection (for installation)
+### Your Computer Requirements
+- **Raspberry Pi Zero/3/4/5** (included in kit)
+- **MicroSD card** (8GB+)
+- **Internet connection** (for setup only)
+- **Speakers or headphones** (for audio output)
 
 ---
 
-## 🚀 Quick Installation
+## 🚀 Quick Setup
 
-### Step 1: Install on Raspberry Pi
+### Step 1: Install Software
 ```bash
 # One-command installation
 curl -sSL https://raw.githubusercontent.com/Jallison154/WRB01/WRB01/Pi%20Zero/easy_install.sh | bash
 ```
 
-**That's it!** The script installs everything automatically.
+**That's it!** The system installs everything automatically.
 
-### Step 2: Upload ESP32 Code
-1. Open Arduino IDE
-2. Upload `Transmitter_ESP32_Working.ino` to transmitter ESP32
-3. Upload `Receiver_ESP32_Working.ino` to receiver ESP32
+### Step 2: Connect Hardware
+1. **Connect Receiver** to Raspberry Pi via USB
+2. **Connect Audio** to speakers or headphones
+3. **Power On** the transmitter (battery-powered)
 
-### Step 3: Hardware Setup
-**Transmitter ESP32:**
-```
-D1 (GPIO2)  ←→ Button 1 ←→ GND
-D2 (GPIO3)  ←→ Button 2 ←→ GND  
-D10 (GPIO8) ←→ LED (220Ω) ←→ 3.3V
-```
-
-**Receiver ESP32:**
-```
-D10 (GPIO8) ←→ LED (220Ω) ←→ 3.3V
-USB ←→ Raspberry Pi
-```
-
-**Raspberry Pi:**
-```
-USB ←→ ESP32 Receiver
-Audio ←→ Speakers/Headphones
-```
+### Step 3: Test System
+- Press buttons on transmitter
+- You should hear audio from your speakers
+- LED indicators show system status
 
 ---
 
 ## 🔧 Configuration
 
-### MAC Address Setup (Required)
-1. Upload `MAC_Finder.ino` to your ESP32 devices
-2. Open Serial Monitor to see MAC addresses
-3. Update the MAC addresses in your ESP32 code:
+### Device Pairing (One-time setup)
+The transmitter and receiver need to be paired together:
 
-**In Transmitter code:**
-```cpp
-uint8_t RX_MAC[] = { 0x58, 0x8C, 0x81, 0x9E, 0x30, 0x10 }; // Your receiver MAC
-```
+1. **Find Device IDs** - Run the MAC finder utility
+2. **Update Configuration** - Enter the device IDs in the system
+3. **Test Connection** - Verify buttons work with audio
 
-**In Receiver code:**
-```cpp
-uint8_t ALLOWED_TX_MACS[][6] = {
-  { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAC }, // Your transmitter MAC
-};
-```
+**Note:** This is a one-time setup process. The system will remember your devices.
 
 ---
 
-## 🎵 Audio Files
+## 🎵 Adding Your Audio
 
-### Supported File Names
-- `button1*.wav` - Button 1 press sounds
-- `button2*.wav` - Button 2 press sounds  
-- `hold1*.wav` - Button 1 hold sounds
-- `hold2*.wav` - Button 2 hold sounds
+### How to Add Custom Sounds
+1. **Prepare Audio Files** - Use WAV format (44.1kHz recommended)
+2. **Name Files Correctly:**
+   - `button1.wav` - Button 1 press sound
+   - `button2.wav` - Button 2 press sound  
+   - `hold1.wav` - Button 1 hold sound
+   - `hold2.wav` - Button 2 hold sound
 
-### File Locations (Priority Order)
-1. **USB Drives** - Insert USB drive with audio files
-2. **Local Directory** - `/home/wrb01/audio/` (fallback)
+### Where to Put Audio Files
+- **USB Drive** - Insert USB with audio files (automatic detection)
+- **Local Folder** - Copy files to the audio directory
+- **Hot-swap** - Change files without restarting system
 
-### Audio Requirements
-- **Format:** WAV files
-- **Sample Rate:** 44.1kHz (recommended)
-- **Channels:** Stereo (2-channel)
-- **Bit Depth:** 16-bit
+### Audio Features
+- **Instant Playback** - No delay when pressing buttons
+- **Multiple Sounds** - Play different sounds simultaneously
+- **Fade Effects** - Smooth transitions when same button pressed
+- **USB Priority** - Automatically uses USB audio when available
 
 ---
 
 ## 🎮 How to Use
 
 ### Button Actions
-- **Quick Press** (< 800ms) → Plays button sound
-- **Hold** (≥ 800ms) → Plays hold sound
+- **Quick Press** - Plays your button sound
+- **Hold Button** - Plays your hold sound (after 1 second)
 
-### LED Status Indicators
-**Transmitter LED:**
-- **Off** - No connection
+### Status Lights
+**Transmitter (Wireless Unit):**
+- **Off** - No connection to receiver
 - **Breathing** - Searching for receiver
-- **Dim** - Connected to receiver
+- **Steady Dim** - Connected and ready
 - **Bright** - Button pressed
 
-**Receiver LED:**
-- **Off** - No transmitters connected
-- **Breathing** - Waiting for transmitters
-- **Dim** - Transmitters connected
-- **Bright** - Button activity
-- **Double Blink** - Hold command
+**Receiver (Connected Unit):**
+- **Off** - No transmitter connected
+- **Breathing** - Waiting for transmitter
+- **Steady Dim** - Transmitter connected
+- **Bright** - Button activity detected
+- **Double Blink** - Hold command received
 
 ---
 
 ## 🔧 System Management
 
-### Check Status
+### Check if System is Running
 ```bash
 sudo systemctl status wrb-simple.service
 ```
 
-### View Logs
+### View System Activity
 ```bash
 sudo journalctl -u wrb-simple.service -f
 ```
 
-### Restart Service
+### Restart System
 ```bash
 sudo systemctl restart wrb-simple.service
 ```
 
-### Test Buttons
+### Test Your Buttons
 ```bash
 python3 /home/wrb01/test_buttons.py
 ```
@@ -165,111 +145,87 @@ python3 /home/wrb01/test_buttons.py
 # Check audio devices
 aplay -l
 
-# Test USB audio
+# Test audio system
 aplay -D plughw:1,0 /home/wrb01/audio/button1.wav
 ```
 
-### ESP32 Not Detected
+### Buttons Not Working
 ```bash
-# Check serial ports
+# Check if receiver is connected
 ls /dev/ttyACM*
 
-# Check service logs
-sudo journalctl -u wrb-simple.service -f
+# Test button detection
+python3 /home/wrb01/test_buttons.py
 ```
 
-### Service Not Starting
+### System Not Starting
 ```bash
-# Check service status
+# Check system status
 sudo systemctl status wrb-simple.service
 
-# Install missing dependencies
+# Install missing components
 sudo apt install python3-gpiozero
 ```
 
-### No Button Response
-1. Check ESP32 connections
-2. Verify MAC addresses are correct
-3. Check serial communication: `python3 /home/wrb01/test_buttons.py`
-4. Check service logs: `sudo journalctl -u wrb-simple.service -f`
+### Quick Fixes
+1. **No Sound** - Check audio connections and run audio test
+2. **No Button Response** - Check receiver connection and run button test
+3. **System Slow** - Restart system and check status
+4. **Connection Issues** - Verify device pairing and check logs
 
 ---
 
 ## 📊 System Specifications
 
 ### Performance
-- **Button to Sound Latency:** < 100ms
-- **Hold Detection:** 800ms ± 50ms
-- **Audio Playback:** Immediate start
-- **LED Feedback:** < 50ms
+- **Instant Response** - Less than 100ms from button press to sound
+- **Hold Detection** - 1 second hold time for hold sounds
+- **Audio Quality** - Professional audio playback
+- **LED Feedback** - Immediate visual confirmation
 
 ### Power Management
-- **Battery Life:** 6+ months (2x AA batteries)
-- **Sleep Modes:** Automatic power saving
-- **Connection Monitoring:** Auto-reconnect
+- **Battery Life** - 6+ months on 2 AA batteries
+- **Auto-Sleep** - Powers down when not in use
+- **Auto-Reconnect** - Reconnects automatically when powered on
 
 ### Audio Features
-- **USB Audio Priority** - Uses USB audio when available
-- **Hot-swap Audio** - Change files without restart
-- **4-channel Playback** - Simultaneous sounds
-- **Fade-out** - Smooth transitions when same button pressed
+- **USB Audio Priority** - Automatically uses best available audio
+- **Hot-swap Audio** - Change sounds without restarting
+- **Multiple Sounds** - Play different sounds at the same time
+- **Fade Effects** - Smooth transitions between sounds
 
----
-
-## 🔒 Security Features
-
-- **MAC Address Authentication** - Only authorized devices
-- **Message Validation** - Rejects malformed messages
-- **Connection Monitoring** - Ping/ack system
-- **Unauthorized Device Logging** - Security monitoring
-
----
-
-## 📁 File Structure
-
-```
-WRB01/
-├── Transmitter/
-│   └── Transmitter_ESP32_Working.ino    # Transmitter code
-├── Receiver/
-│   └── Receiver_ESP32_Working.ino       # Receiver code
-├── Pi Zero/
-│   ├── easy_install.sh                  # Installation script
-│   ├── simple_audio_player.py           # Audio player
-│   └── Default Sounds/                  # Default audio files
-├── MAC_Finder.ino                       # MAC address utility
-└── README.md                            # Detailed documentation
-```
+### Security
+- **Device Pairing** - Only your devices can control the system
+- **Secure Communication** - Encrypted wireless transmission
+- **Connection Monitoring** - Automatic reconnection if connection lost
 
 ---
 
 ## 🆘 Support
 
 ### Quick Fixes
-- **Service not starting:** `sudo systemctl restart wrb-simple.service`
-- **No audio:** Check USB audio connection and run `aplay -l`
-- **No button response:** Check ESP32 connections and MAC addresses
-- **System slow:** Restart Pi and check service status
+- **System not starting:** `sudo systemctl restart wrb-simple.service`
+- **No audio:** Check audio connections and run `aplay -l`
+- **No button response:** Check receiver connection and run button test
+- **System slow:** Restart system and check status
 
 ### Getting Help
-- **Service Logs:** `sudo journalctl -u wrb-simple.service -f`
+- **System Logs:** `sudo journalctl -u wrb-simple.service -f`
 - **System Status:** `sudo systemctl status wrb-simple.service`
-- **Test System:** `python3 /home/wrb01/test_buttons.py`
+- **Test Buttons:** `python3 /home/wrb01/test_buttons.py`
 
 ---
 
-## ✅ Installation Checklist
+## ✅ Setup Checklist
 
 - [ ] Raspberry Pi connected to internet
 - [ ] Installation script completed successfully
-- [ ] ESP32 transmitter code uploaded
-- [ ] ESP32 receiver code uploaded
-- [ ] MAC addresses configured correctly
+- [ ] Transmitter and receiver paired
 - [ ] Hardware connections made
 - [ ] Audio files in place
-- [ ] Service running (`sudo systemctl status wrb-simple.service`)
+- [ ] System running (`sudo systemctl status wrb-simple.service`)
 - [ ] Test buttons working (`python3 /home/wrb01/test_buttons.py`)
 
 ---
 
-**Your WRB01 system is ready! Press buttons to hear audio! 🎯**
+**Your WRB01 system is ready! Press buttons to hear your custom audio! 🎯**
