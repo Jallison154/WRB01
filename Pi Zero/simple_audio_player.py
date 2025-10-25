@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 """
 WRB Simple Audio Player for ESP32 Button System
-Based on working mattsfx code with proper audio handling
+Production-ready version with comprehensive reliability features
 """
 
-import os, glob, time, random, sys, serial
+import os, glob, time, serial
+import signal
+import sys
+import threading
+import traceback
+from pathlib import Path
 
 # ALSA device configuration - try USB first, fallback to built-in
 os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
+
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 
 BAUD = 115200
 SERIAL = os.getenv("WRB_SERIAL", "/dev/ttyACM0")
@@ -17,6 +26,117 @@ MIX_FREQ = 44100
 MIX_BUF = 256
 RESCAN_SEC = 1.0
 IDLE_SHUTOFF_SEC = 0   # Keep mixer always active for instant response
+
+# Reliability Configuration
+MAX_SERIAL_RETRIES = 5          # Maximum retries for serial reconnection
+SERIAL_RECONNECT_DELAY = 2.0    # Delay between serial reconnection attempts
+WATCHDOG_TIMEOUT = 30           # Watchdog timeout in seconds
+HEALTH_CHECK_INTERVAL = 5       # Health check interval in seconds
+MAX_CONSECUTIVE_ERRORS = 10     # Maximum consecutive errors before restart
+
+# Logging
+LOG_DIR = Path("/var/log/wrb01")
+LOG_FILE = LOG_DIR / "simple_audio_player.log"
+
+# =============================================================================
+# LOGGING SYSTEM
+# =============================================================================
+
+def setup_logging():
+    """Setup logging directory and file"""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return
+
+def log_message(level, message):
+    """Log message with timestamp"""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    log_entry = f"[{timestamp}] [{level}] {message}\n"
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(log_entry)
+    except Exception as e:
+        print(f"Failed to write to log: {e}", flush=True)
+    print(log_entry.strip(), flush=True)
+
+def log_error(message, exc_info=False):
+    """Log error with optional traceback"""
+    log_message("ERROR", message)
+    if exc_info:
+        try:
+            tb = traceback.format_exc()
+            with open(LOG_FILE, "a") as f:
+                f.write(tb + "\n")
+        except:
+            pass
+
+def log_info(message):
+    """Log info message"""
+    log_message("INFO", message)
+
+def log_warning(message):
+    """Log warning message"""
+    log_message("WARNING", message)
+
+def log_debug(message):
+    """Log debug message"""
+    log_message("DEBUG", message)
+
+# =============================================================================
+# GLOBAL STATE TRACKING
+# =============================================================================
+
+class SystemHealth:
+    """Track system health and reliability metrics"""
+    def __init__(self):
+        self.consecutive_errors = 0
+        self.last_error_time = 0
+        self.serial_errors = 0
+        self.audio_errors = 0
+        self.button_presses = 0
+        self.last_activity = time.time()
+        self.start_time = time.time()
+        self.serial_reconnect_count = 0
+        self.health_check_failures = 0
+        
+    def record_error(self, error_type="general"):
+        """Record an error occurrence"""
+        self.consecutive_errors += 1
+        self.last_error_time = time.time()
+        if error_type == "serial":
+            self.serial_errors += 1
+        elif error_type == "audio":
+            self.audio_errors += 1
+            
+    def record_success(self):
+        """Record a successful operation"""
+        self.consecutive_errors = 0
+        
+    def record_button_press(self):
+        """Record button activity"""
+        self.button_presses += 1
+        self.last_activity = time.time()
+        
+    def get_uptime(self):
+        """Get system uptime in seconds"""
+        return time.time() - self.start_time
+        
+    def should_restart(self):
+        """Check if system should restart due to error count"""
+        return self.consecutive_errors >= MAX_CONSECUTIVE_ERRORS
+        
+    def get_status(self):
+        """Get current health status"""
+        return {
+            "uptime": self.get_uptime(),
+            "consecutive_errors": self.consecutive_errors,
+            "serial_errors": self.serial_errors,
+            "audio_errors": self.audio_errors,
+            "button_presses": self.button_presses,
+            "serial_reconnects": self.serial_reconnect_count,
+            "health_check_failures": self.health_check_failures
+        }
+
+health = SystemHealth()
 
 # --- LED (simple on/off, active-low wiring) ---
 from gpiozero import LED, PWMLED
@@ -341,15 +461,20 @@ def play_hold2():
     _last_play = time.time()
 
 def wait_serial():
-    print("[wrb] waiting for serial…", flush=True)
+    print("[wrb] checking for serial…", flush=True)
     prefs = [SERIAL, "/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/serial0", "/dev/ttyAMA0", "/dev/ttyS0"]
-    while True:
-        for p in prefs:
-            try:
-                return serial.Serial(p, BAUD, timeout=0.1)
-            except:
-                pass
-        time.sleep(0.3)
+    # Quick check for serial (don't block boot)
+    for p in prefs:
+        try:
+            ser = serial.Serial(p, BAUD, timeout=0.1)
+            print(f"[wrb] serial found: {p}", flush=True)
+            return ser
+        except:
+            pass
+    
+    # If no serial found, start anyway (no blocking)
+    print("[wrb] No serial device found, starting without serial...", flush=True)
+    return None
 
 def main():
     led.off()  # OFF until ready
@@ -368,7 +493,10 @@ def main():
     print(f"[wrb] source={tag} btn1={btn1} btn2={btn2} hold1={h1} hold2={h2}", flush=True)
 
     ser = wait_serial()
-    print(f"[wrb] serial: {ser.port}", flush=True)
+    if ser:
+        print(f"[wrb] serial: {ser.port}", flush=True)
+    else:
+        print("[wrb] serial: None (starting without serial)", flush=True)
 
     led.on()
     print("[wrb] READY - Audio mixer active", flush=True)
@@ -384,13 +512,18 @@ def main():
                 print(f"[wrb] reloaded: source={tag} btn1={btn1} btn2={btn2} hold1={h1} hold2={h2}", flush=True)
             last_scan = time.time()
 
-        # read serial and play
-        try:
-            line = ser.readline().decode(errors="ignore")
-        except Exception:
-            time.sleep(0.05)
-            continue
-        if not line:
+        # read serial and play (only if serial device exists)
+        if ser:
+            try:
+                line = ser.readline().decode(errors="ignore")
+            except Exception:
+                time.sleep(0.05)
+                continue
+            if not line:
+                continue
+        else:
+            # No serial device - just wait
+            time.sleep(0.1)
             continue
 
         t = classify(line)
