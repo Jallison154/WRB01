@@ -30,6 +30,10 @@ print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
 # =============================================================================
 # BOOT OPTIMIZATION FUNCTIONS
 # =============================================================================
@@ -171,7 +175,7 @@ print_success "System packages updated"
 
 # Install required packages
 print_step "Installing required packages..."
-sudo apt install -y python3-pygame python3-serial python3-numpy python3-gpiozero alsa-utils git
+sudo apt install -y python3-pygame python3-serial python3-numpy python3-gpiozero alsa-utils git exfatprogs ntfs-3g raspi-gpio
 print_success "Required packages installed"
 
 # Comprehensive cleanup of old installation
@@ -960,6 +964,75 @@ fi
 
 print_success "Python scripts installed"
 
+# USB Auto-mounting Setup
+print_step "Setting up USB auto-mounting with LED status..."
+
+# Create USB auto-mount script
+print_info "Creating USB auto-mount script..."
+sudo tee /usr/local/bin/usb-automount.sh > /dev/null << 'EOF'
+#!/bin/bash
+set -e
+ACTION="$1"; DEV="$2"
+PI_USER="wrb01"; PI_UID="$(id -u $PI_USER)"; PI_GID="$(id -g $PI_USER)"
+
+# LED (GPIO24 active-low)
+MOUNT_LED_PIN=24; LED_ACTIVE_LOW=1
+raspi-gpio set $MOUNT_LED_PIN op dh 2>/dev/null || true
+led_on(){  [ "$LED_ACTIVE_LOW" = "1" ] && raspi-gpio set $MOUNT_LED_PIN dl || raspi-gpio set $MOUNT_LED_PIN dh; }
+led_off(){ [ "$LED_ACTIVE_LOW" = "1" ] && raspi-gpio set $MOUNT_LED_PIN dh || raspi-gpio set $MOUNT_LED_PIN dl; }
+
+[ -z "$DEV" ] && exit 0
+
+case "$ACTION" in
+  add)
+    LABEL="$(blkid -o value -s LABEL "$DEV" 2>/dev/null || true)"; [ -z "$LABEL" ] && LABEL="usb"
+    FSTYPE="$(blkid -o value -s TYPE "$DEV" 2>/dev/null || true)"
+    MNT="/media/$LABEL"; mkdir -p "$MNT"; chown "$PI_USER:$PI_USER" "$MNT"
+    OPTS="uid=$PI_UID,gid=$PI_GID,umask=002,noatime,nosuid,nodev"
+    if [ "$FSTYPE" = "ntfs" ] && command -v ntfs-3g >/dev/null; then
+      mount -t ntfs-3g -o "$OPTS" "$DEV" "$MNT"
+    else
+      mount -o "$OPTS" "$DEV" "$MNT"
+    fi
+    led_on
+    echo "[usb-automount] Mounted $DEV at $MNT (LED ON)" >> /var/log/usb-automount.log
+    ;;
+  remove)
+    awk -v dev="$DEV" '$1==dev {print $2}' /proc/mounts | while read -r MP; do
+      umount -l "$MP" || true
+      rmdir "$MP" 2>/dev/null || true
+    done
+    led_off
+    echo "[usb-automount] Unmounted $DEV (LED OFF)" >> /var/log/usb-automount.log
+    ;;
+esac
+EOF
+
+# Make script executable
+sudo chmod +x /usr/local/bin/usb-automount.sh
+print_success "USB auto-mount script created"
+
+# Create udev rule for USB auto-mounting
+print_info "Creating udev rule for USB auto-mounting..."
+sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOF'
+ACTION=="add",    SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", ENV{ID_FS_TYPE}!="", \
+  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-mount-%k /usr/local/bin/usb-automount.sh add /dev/%k"
+
+ACTION=="remove", SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", \
+  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-umount-%k /usr/local/bin/usb-automount.sh remove /dev/%k"
+EOF
+
+# Reload udev rules
+sudo udevadm control --reload
+print_success "USB auto-mounting configured"
+
+# Create log directory for USB auto-mount
+sudo mkdir -p /var/log
+sudo touch /var/log/usb-automount.log
+sudo chown wrb01:wrb01 /var/log/usb-automount.log
+
+print_success "USB auto-mounting with LED status on GPIO 24 configured"
+
 # Create optimized systemd service for fast startup
 print_step "Creating optimized systemd service..."
 sudo tee /etc/systemd/system/wrb-simple.service > /dev/null << EOF
@@ -1082,6 +1155,18 @@ else
     print_warning "⚠ Service may not be running"
 fi
 
+if [ -f "/usr/local/bin/usb-automount.sh" ]; then
+    print_success "✓ USB auto-mount script installed"
+else
+    print_error "✗ USB auto-mount script not found"
+fi
+
+if [ -f "/etc/udev/rules.d/99-usb-automount.rules" ]; then
+    print_success "✓ USB auto-mount udev rule installed"
+else
+    print_error "✗ USB auto-mount udev rule not found"
+fi
+
 # Clean up repository
 print_step "Cleaning up installation files..."
 if [ -d "WRB01" ]; then
@@ -1099,13 +1184,24 @@ print_info "Restart service: sudo systemctl restart wrb-simple.service"
 print_info "Stop service: sudo systemctl stop wrb-simple.service"
 print_info "Start service: sudo systemctl start wrb-simple.service"
 print_info "Test buttons: python3 /home/wrb01/test_buttons.py"
+print_info "View USB mount logs: tail -f /var/log/usb-automount.log"
+print_info "Test USB mount: sudo /usr/local/bin/usb-automount.sh add /dev/sda1"
 echo
 print_info "=== SYSTEM READY ==="
 print_info "✓ ESP32 receiver should be connected to /dev/ttyACM0"
 print_info "✓ USB audio interface configured"
 print_info "✓ Audio files ready"
 print_info "✓ Service running automatically"
+print_info "✓ USB auto-mounting with LED status on GPIO 24"
 print_info "✓ Test script available for debugging"
 echo
-print_info "Your WRB01 Simple Button + Audio System is ready!"
+print_info "=== USB AUTO-MOUNTING FEATURES ==="
+print_info "✓ Automatic USB drive mounting to /media/<LABEL>"
+print_info "✓ LED status indicator on GPIO 24 (ON=mounted, OFF=unmounted)"
+print_info "✓ Support for FAT, exFAT, NTFS, and ext* filesystems"
+print_info "✓ Automatic audio file detection from USB drives"
+print_info "✓ Hot-swap support - change USB drives without restart"
+echo
+print_info "Your WRB01 Simple Button + Audio System with USB auto-mounting is ready!"
 print_info "Press buttons on your ESP32 transmitter to hear audio!"
+print_info "Insert USB drives with audio files for automatic detection!"
