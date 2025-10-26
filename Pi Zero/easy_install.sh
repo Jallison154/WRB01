@@ -979,8 +979,23 @@ PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
 
 # Check if any USB drives are mounted
 check_usb_mounted() {
-    # Check /proc/mounts directly for any sda, sdb, etc. mounts
-    if grep -qE '\b/dev/sd[a-z][0-9]+' /proc/mounts 2>/dev/null; then
+    # Check /media directory for mounted USB drives (more reliable)
+    local mounted=0
+    
+    # Check if any /media/* directories exist and are mount points
+    if [ -d "/media" ]; then
+        for mount_dir in /media/*; do
+            if [ -d "$mount_dir" ]; then
+                # Check if this is actually a mount point
+                if mountpoint -q "$mount_dir" 2>/dev/null; then
+                    echo "[usb-automount] Found mounted USB at: $mount_dir" >> /var/log/usb-automount.log
+                    mounted=1
+                fi
+            fi
+        done
+    fi
+    
+    if [ $mounted -eq 1 ]; then
         return 0  # At least one USB drive is mounted
     else
         return 1  # No USB drives mounted
