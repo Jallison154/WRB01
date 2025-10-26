@@ -977,39 +977,10 @@ PI_USER="wrb01"
 PI_UID=$(id -u "$PI_USER" 2>/dev/null || echo "1000")
 PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
 
-# LED Control (GPIO 24, active-low)
-MOUNT_LED_PIN=24
+# LED Control using Python gpiozero (same as simple_audio_player.py)
 led_control() {
     local state=$1
-    local gpio_path="/sys/class/gpio/gpio${MOUNT_LED_PIN}"
-    
-    # Export GPIO if not already exported
-    if [ ! -d "$gpio_path" ]; then
-        echo "${MOUNT_LED_PIN}" > /sys/class/gpio/export 2>&1 | tee -a /var/log/usb-automount.log
-        sleep 0.2
-        
-        # Verify export succeeded
-        if [ ! -d "$gpio_path" ]; then
-            echo "[usb-automount] ERROR: Failed to export GPIO ${MOUNT_LED_PIN}" >> /var/log/usb-automount.log
-            return 1
-        fi
-    fi
-    
-    # Set direction
-    echo "out" > "${gpio_path}/direction" 2>&1 | tee -a /var/log/usb-automount.log
-    
-    # Set value (active low: 0=ON, 1=OFF)
-    if [ "$state" = "on" ]; then
-        echo 0 > "${gpio_path}/value" 2>&1 | tee -a /var/log/usb-automount.log
-        echo "[usb-automount] LED turned ON (GPIO ${MOUNT_LED_PIN} = 0)" >> /var/log/usb-automount.log
-    else
-        echo 1 > "${gpio_path}/value" 2>&1 | tee -a /var/log/usb-automount.log
-        echo "[usb-automount] LED turned OFF (GPIO ${MOUNT_LED_PIN} = 1)" >> /var/log/usb-automount.log
-    fi
-    
-    # Verify the value was set
-    local current_value=$(cat "${gpio_path}/value" 2>/dev/null || echo "unknown")
-    echo "[usb-automount] Current GPIO ${MOUNT_LED_PIN} value: $current_value" >> /var/log/usb-automount.log
+    /usr/bin/python3 /usr/local/bin/usb_led_control.py "$state" 2>&1 | tee -a /var/log/usb-automount.log
 }
 
 [ -z "$DEV" ] && exit 0
@@ -1088,6 +1059,54 @@ EOF
 # Make script executable
 sudo chmod +x /usr/local/bin/usb-automount.sh
 print_success "USB auto-mount script created"
+
+# Install Python LED controller script
+print_info "Installing Python LED controller..."
+sudo tee /usr/local/bin/usb_led_control.py > /dev/null << 'PYEOF'
+#!/usr/bin/env python3
+"""
+USB Mount LED Controller
+Controls GPIO 24 LED for USB mount status using gpiozero
+Matches the pattern used in simple_audio_player.py
+"""
+import sys
+from gpiozero import LED
+
+# GPIO 24, active-low (same as READY_PIN pattern in simple_audio_player.py)
+MOUNT_LED_PIN = 24
+ACTIVE_LOW = True
+
+# Create LED object (active_high=False means active-low)
+led = LED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW)
+
+def set_led(state):
+    """Set LED state: 'on' or 'off'"""
+    try:
+        if state == "on":
+            led.on()
+            print(f"LED ON (GPIO {MOUNT_LED_PIN})")
+        elif state == "off":
+            led.off()
+            print(f"LED OFF (GPIO {MOUNT_LED_PIN})")
+        else:
+            print(f"Invalid state: {state}")
+            return 1
+        return 0
+    except Exception as e:
+        print(f"Error controlling LED: {e}")
+        return 1
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: usb_led_control.py <on|off>")
+        sys.exit(1)
+    
+    state = sys.argv[1].lower()
+    sys.exit(set_led(state))
+PYEOF
+
+sudo chmod +x /usr/local/bin/usb_led_control.py
+print_success "Python LED controller installed"
 
 # Create udev rule for USB auto-mounting
 print_info "Creating udev rule for USB auto-mounting..."
