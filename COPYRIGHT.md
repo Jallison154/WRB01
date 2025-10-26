@@ -1,7 +1,7 @@
 # WRB01 Project - Copyright and Ownership
 
 ## Copyright Notice
-© 2024 Okami Designs
+© 2025 Okami Designs
 
 ## Project Ownership
 This project (WRB01) is owned and developed by Okami Designs.
@@ -29,4 +29,4 @@ For questions about licensing or usage rights, contact Okami Designs:
 - **Website:** www.okamidesigns.com
 
 ---
-*Last updated: December 2024*
+*Last updated: January 2025*
