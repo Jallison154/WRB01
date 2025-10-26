@@ -155,13 +155,21 @@ usb_led = PWMLED(26, active_high=False)
 
 def flash_usb_led():
     """Flash the USB LED briefly when audio is played"""
-    try:
-        # Flash LED on for 200ms
-        usb_led.value = 1.0  # Full brightness
-        time.sleep(0.2)
-        usb_led.value = 0.0  # Turn off
-    except Exception as e:
-        print(f"USB LED flash error: {e}", flush=True)
+    import threading
+    
+    def flash_worker():
+        try:
+            # Flash LED on for 200ms
+            usb_led.value = 1.0  # Full brightness
+            print("[wrb] USB LED ON", flush=True)  # Debug output
+            time.sleep(0.2)
+            usb_led.value = 0.0  # Turn off
+            print("[wrb] USB LED OFF", flush=True)  # Debug output
+        except Exception as e:
+            print(f"USB LED flash error: {e}", flush=True)
+    
+    # Run flash in background thread so it doesn't block audio
+    threading.Thread(target=flash_worker, daemon=True).start()
 
 def usb_mount_dirs():
     base = "/media"
