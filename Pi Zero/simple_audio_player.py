@@ -147,8 +147,7 @@ class SystemHealth:
 health = SystemHealth()
 
 # --- LED (simple on/off, active-low wiring) ---
-from gpiozero import LED, PWMLED
-led = LED(READY_PIN, active_high=(not READY_ACTIVE_LOW))
+from gpiozero import PWMLED
 # Status LED on pin 23 at 25% brightness
 status_led = PWMLED(23)
 
@@ -485,8 +484,6 @@ def wait_serial():
     return None
 
 def main():
-    led.off()  # OFF until ready
-
     # Initialize mixer immediately for instant response
     print("[wrb] initializing audio mixer...", flush=True)
     ensure_mixer()
