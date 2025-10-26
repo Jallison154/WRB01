@@ -1,10 +1,10 @@
 # WRB01 Project - Copyright and Ownership
 
 ## Copyright Notice
-© 2024 Matt Baker Mic Buttons Project (WRB01)
+© 2024 Okami Designs
 
 ## Project Ownership
-This project (WRB01) is owned and developed by the project team.
+This project (WRB01) is owned and developed by Okami Designs.
 
 ## License
 This project is proprietary and confidential. All rights reserved.
@@ -23,7 +23,7 @@ This project is proprietary and confidential. All rights reserved.
 - Documentation and user manuals
 
 ## Contact
-For questions about licensing or usage rights, contact the project owner.
+For questions about licensing or usage rights, contact Okami Designs.
 
 ---
 *Last updated: December 2024*
