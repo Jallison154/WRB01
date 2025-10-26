@@ -23,7 +23,10 @@ This project is proprietary and confidential. All rights reserved.
 - Documentation and user manuals
 
 ## Contact
-For questions about licensing or usage rights, contact Okami Designs.
+For questions about licensing or usage rights, contact Okami Designs:
+
+- **Email:** contact@okamidesigns.com
+- **Website:** www.okamidesigns.com
 
 ---
 *Last updated: December 2024*
