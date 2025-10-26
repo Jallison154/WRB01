@@ -23,10 +23,23 @@ PI_USER="wrb01"
 PI_UID=$(id -u "$PI_USER" 2>/dev/null || echo "1000")
 PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
 
+# Check if any USB drives are mounted
+check_usb_mounted() {
+    # Check /proc/mounts for any sda, sdb, etc. mounts
+    if mount | grep -E '\b/dev/sd[a-z]' > /dev/null; then
+        return 0  # At least one USB drive is mounted
+    else
+        return 1  # No USB drives mounted
+    fi
+}
+
 # LED Control using Python gpiozero (same as simple_audio_player.py)
-led_control() {
-    local state=$1
-    /usr/bin/python3 /usr/local/bin/usb_led_control.py "$state" 2>&1 | tee -a /var/log/usb-automount.log
+update_led_status() {
+    if check_usb_mounted; then
+        /usr/bin/python3 /usr/local/bin/usb_led_control.py on 2>&1 | tee -a /var/log/usb-automount.log
+    else
+        /usr/bin/python3 /usr/local/bin/usb_led_control.py off 2>&1 | tee -a /var/log/usb-automount.log
+    fi
 }
 
 [ -z "$DEV" ] && exit 0
@@ -72,9 +85,9 @@ case "$ACTION" in
     fi
     
     if [ $MOUNT_SUCCESS -eq 0 ]; then
-        # Turn on LED
-        led_control on
-        echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT (LED ON)" >> /var/log/usb-automount.log
+        # Update LED based on whether any USB drives are mounted
+        update_led_status
+        echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT" >> /var/log/usb-automount.log
     else
         echo "[usb-automount] $(date): FAILED to mount $DEV" >> /var/log/usb-automount.log
     fi
@@ -94,10 +107,10 @@ case "$ACTION" in
         rmdir "$MP" 2>/dev/null || true
     done
     
-    # Turn off LED
-    led_control off
+    # Update LED based on whether any USB drives are still mounted
+    update_led_status
     
-    echo "[usb-automount] $(date): Unmounted $DEV (LED OFF)" >> /var/log/usb-automount.log
+    echo "[usb-automount] $(date): Unmounted $DEV" >> /var/log/usb-automount.log
     ;;
 esac
 EOF
