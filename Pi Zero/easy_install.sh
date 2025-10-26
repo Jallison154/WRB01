@@ -1099,10 +1099,30 @@ sudo systemctl disable rpi-eeprom-update.service 2>/dev/null || true
 print_info "Applying additional systemd optimizations..."
 sudo tee /etc/systemd/system.conf.d/20-wrb-fast.conf > /dev/null << EOF
 [Manager]
-DefaultTimeoutStartSec=5s
-DefaultTimeoutStopSec=3s
-DefaultRestartSec=1s
+DefaultTimeoutStartSec=3s
+DefaultTimeoutStopSec=2s
+DefaultRestartSec=0.5s
 EOF
+
+# Disable network wait services (MAJOR boot speed improvement)
+print_info "Disabling network wait services for instant boot..."
+sudo systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
+sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
+sudo systemctl mask wait-online.service 2>/dev/null || true
+
+# Add boot optimizations to config.txt
+print_info "Adding boot optimizations to config.txt..."
+if [ -f /boot/config.txt ]; then
+    # Disable splash screen
+    if ! grep -q "disable_splash=1" /boot/config.txt; then
+        echo "disable_splash=1" | sudo tee -a /boot/config.txt
+    fi
+    
+    # Faster CPU for boot
+    if ! grep -q "arm_freq=1200" /boot/config.txt; then
+        echo "arm_freq=1200" | sudo tee -a /boot/config.txt
+    fi
+fi
 
 # Set service to start immediately after filesystem (no network dependency)
 print_info "Setting service to start immediately after filesystem..."

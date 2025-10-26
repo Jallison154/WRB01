@@ -2,14 +2,22 @@
 """
 WRB Simple Audio Player for ESP32 Button System
 Production-ready version with comprehensive reliability features
+Optimized for fast startup (target: < 3 seconds to ready)
 """
 
-import os, glob, time, serial
-import signal
-import sys
-import threading
-import traceback
-from pathlib import Path
+import os
+import glob
+import time
+import serial
+# Lazy imports for faster startup
+try:
+    import signal
+    import sys
+    import threading
+    import traceback
+    from pathlib import Path
+except ImportError as e:
+    print(f"[wrb] Warning: Import failed: {e}", flush=True)
 
 # ALSA device configuration - try USB first, fallback to built-in
 os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
