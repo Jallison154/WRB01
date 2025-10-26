@@ -162,7 +162,7 @@ def flash_usb_led():
     
     def flash_worker():
         try:
-            # Flash LED on for 200ms
+            # Turn LED on for 200ms (active_high=False means 1.0 = ON)
             usb_led.value = 1.0  # Full brightness
             print(f"[wrb] {timestamp} USB LED ON - Audio playing", flush=True)  # Debug output
             time.sleep(0.2)
@@ -529,6 +529,10 @@ def main():
     # Turn on status LED to show service is running
     status_led.value = 0.25  # 25% brightness
     print("[wrb] Status LED ON (25% brightness) - Service running", flush=True)
+    
+    # Turn off USB LED initially (no audio playing)
+    usb_led.value = 0.0  # OFF
+    print("[wrb] USB LED OFF - No audio playing", flush=True)
 
     # source scan + initial paths
     tag, btn1, btn2, h1, h2 = pick_source()
