@@ -152,42 +152,21 @@ status_led = PWMLED(23)
 # USB LED on pin 26 for audio playback flash
 usb_led = PWMLED(26, active_high=True)
 
-def flash_usb_led():
-    """Flash the USB LED briefly when USB audio is played"""
-    import threading
-    import time
-    
-    # Check if current audio source is from USB
-    current_source = get_current_source()
-    if not current_source or not current_source.startswith('/media/'):
-        # Not a USB source, don't flash LED
-        return
-    
-    # Add timestamp to debug output
-    timestamp = time.strftime("%H:%M:%S")
-    
-    def flash_worker():
-        try:
-            # Turn LED on for 200ms (active_high=True means 1.0 = ON)
-            usb_led.value = 1.0  # Full brightness
-            print(f"[wrb] {timestamp} USB LED ON - USB audio playing from {current_source}", flush=True)  # Debug output
-            time.sleep(0.2)
-            usb_led.value = 0.0  # Turn off
-            print(f"[wrb] {timestamp} USB LED OFF - USB audio finished", flush=True)  # Debug output
-        except Exception as e:
-            print(f"USB LED flash error: {e}", flush=True)
-    
-    # Run flash in background thread so it doesn't block audio
-    threading.Thread(target=flash_worker, daemon=True).start()
-
-def get_current_source():
-    """Get the current audio source (USB or local)"""
-    # Check if any USB drives are mounted
-    usb_dirs = usb_mount_dirs()
-    if usb_dirs:
-        # Return the first USB mount point
-        return usb_dirs[0]
-    return None
+def update_usb_led():
+    """Update USB LED based on USB mount status"""
+    try:
+        # Check if any USB drives are mounted
+        usb_dirs = usb_mount_dirs()
+        if usb_dirs:
+            # USB mounted - turn LED ON
+            usb_led.value = 1.0  # ON
+            print(f"[wrb] USB LED ON - USB mounted: {usb_dirs}", flush=True)
+        else:
+            # No USB mounted - turn LED OFF
+            usb_led.value = 0.0  # OFF
+            print("[wrb] USB LED OFF - No USB mounted", flush=True)
+    except Exception as e:
+        print(f"USB LED update error: {e}", flush=True)
 
 def usb_mount_dirs():
     base = "/media"
@@ -372,8 +351,8 @@ def play_button1():
     channel.stop()
     channel.play(s)
     
-    # Flash USB LED when playing audio
-    flash_usb_led()
+    # Update USB LED status
+    update_usb_led()
     
     # Track the sound for fade-out capability
     _current_sounds['button1'] = s
@@ -419,8 +398,8 @@ def play_button2():
     channel.stop()
     channel.play(s)
     
-    # Flash USB LED when playing audio
-    flash_usb_led()
+    # Update USB LED status
+    update_usb_led()
     
     # Track the sound for fade-out capability
     _current_sounds['button2'] = s
@@ -466,8 +445,8 @@ def play_hold1():
     channel.stop()
     channel.play(s)
     
-    # Flash USB LED when playing audio
-    flash_usb_led()
+    # Update USB LED status
+    update_usb_led()
     
     # Track the sound for fade-out capability
     _current_sounds['hold1'] = s
@@ -513,8 +492,8 @@ def play_hold2():
     channel.stop()
     channel.play(s)
     
-    # Flash USB LED when playing audio
-    flash_usb_led()
+    # Update USB LED status
+    update_usb_led()
     
     # Track the sound for fade-out capability
     _current_sounds['hold2'] = s
@@ -545,16 +524,8 @@ def main():
     status_led.value = 0.25  # 25% brightness
     print("[wrb] Status LED ON (25% brightness) - Service running", flush=True)
     
-    # Test USB LED behavior
-    print("[wrb] Testing USB LED...", flush=True)
-    usb_led.value = 0.0  # OFF
-    print("[wrb] USB LED should be OFF now", flush=True)
-    time.sleep(1)
-    usb_led.value = 1.0  # ON
-    print("[wrb] USB LED should be ON now", flush=True)
-    time.sleep(1)
-    usb_led.value = 0.0  # OFF
-    print("[wrb] USB LED should be OFF now - Ready for audio", flush=True)
+    # Initialize USB LED based on current mount status
+    update_usb_led()
 
     # source scan + initial paths
     tag, btn1, btn2, h1, h2 = pick_source()
@@ -571,6 +542,9 @@ def main():
     last_scan = time.time()
 
     while True:
+        # Check USB mount status and update LED
+        update_usb_led()
+        
         # hot-swap (update file paths only)
         if time.time() - last_scan > RESCAN_SEC:
             ntag, nbtn1, nbtn2, nh1, nh2 = pick_source()
