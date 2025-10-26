@@ -59,9 +59,9 @@ update_led_status() {
     echo "[usb-automount] $(date): USB mounted check result: $mount_status" >> /var/log/usb-automount.log
     
     if [ $mount_status -eq 0 ]; then
-        /usr/bin/python3 /usr/local/bin/usb_led_control.py on 2>&1 | tee -a /var/log/usb-automount.log
+        /usr/bin/python3 /usr/local/bin/usb_led_control.py on > /dev/null 2>&1 &
     else
-        /usr/bin/python3 /usr/local/bin/usb_led_control.py off 2>&1 | tee -a /var/log/usb-automount.log
+        /usr/bin/python3 /usr/local/bin/usb_led_control.py off > /dev/null 2>&1 &
     fi
 }
 
@@ -109,8 +109,8 @@ case "$ACTION" in
     
     if [ $MOUNT_SUCCESS -eq 0 ]; then
         echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT" >> /var/log/usb-automount.log
-        # Turn LED on immediately without checking
-        /usr/bin/python3 /usr/local/bin/usb_led_control.py on 2>&1 | tee -a /var/log/usb-automount.log
+        # Turn LED on immediately without checking (run in background so it doesn't get killed)
+        /usr/bin/python3 /usr/local/bin/usb_led_control.py on > /dev/null 2>&1 &
     else
         echo "[usb-automount] $(date): FAILED to mount $DEV" >> /var/log/usb-automount.log
     fi
