@@ -169,29 +169,34 @@ def set_led(state):
         led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
         
         if state == "on":
-            # Start at 100% brightness
-            led.value = FADE_START
-            print(f"LED ON (GPIO {MOUNT_LED_PIN}) at 100%")
+            print(f"LED breathing effect (GPIO {MOUNT_LED_PIN})")
             
-            # Fade from 100% to 50% over 2 seconds
+            # Breathing effect: fade from 100% to 50% and back continuously
+            import math
+            
+            # Calculate steps for one full breath cycle
             fade_step = (FADE_START - FADE_END) / FADE_STEPS
             delay = FADE_DURATION / FADE_STEPS
             
-            for i in range(FADE_STEPS + 1):
-                brightness = FADE_START - (fade_step * i)
-                if ACTIVE_LOW:
-                    # Invert for active-low
-                    led.value = 1.0 - brightness
-                else:
-                    led.value = brightness
-                time.sleep(delay)
-            
-            # Keep LED at final brightness
-            if ACTIVE_LOW:
-                led.value = 1.0 - FADE_END
-            else:
-                led.value = FADE_END
-            print(f"LED faded to 50% (GPIO {MOUNT_LED_PIN})")
+            # Breath continuously until LED is turned off (when USB is unmounted)
+            while True:
+                # Fade down: 100% -> 50%
+                for i in range(FADE_STEPS + 1):
+                    brightness = FADE_START - (fade_step * i)
+                    if ACTIVE_LOW:
+                        led.value = 1.0 - brightness
+                    else:
+                        led.value = brightness
+                    time.sleep(delay)
+                
+                # Fade up: 50% -> 100%
+                for i in range(FADE_STEPS + 1):
+                    brightness = FADE_END + (fade_step * i)
+                    if ACTIVE_LOW:
+                        led.value = 1.0 - brightness
+                    else:
+                        led.value = brightness
+                    time.sleep(delay)
             
         elif state == "off":
             led.off()
