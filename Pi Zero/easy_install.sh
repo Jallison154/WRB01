@@ -1103,7 +1103,7 @@ sudo tee /usr/local/bin/usb_led_control.py > /dev/null << 'PYEOF'
 #!/usr/bin/env python3
 """
 USB Mount LED Controller
-Controls GPIO 24 LED for USB mount status using gpiozero with PWM fade
+Controls GPIO 26 LED for USB mount status using gpiozero with PWM fade
 Uses a PID file to track running instance
 """
 import sys
@@ -1112,8 +1112,8 @@ import time
 import signal
 from gpiozero import PWMLED
 
-# GPIO 24, active-low (same as READY_PIN pattern in simple_audio_player.py)
-MOUNT_LED_PIN = 24
+# GPIO 26, active-low (same as READY_PIN pattern in simple_audio_player.py)
+MOUNT_LED_PIN = 26
 ACTIVE_LOW = True
 FADE_DURATION = 2.0  # 2 seconds
 FADE_STEPS = 50      # Number of steps for smooth fade
@@ -1267,7 +1267,7 @@ sudo mkdir -p /var/log
 sudo touch /var/log/usb-automount.log
 sudo chown wrb01:wrb01 /var/log/usb-automount.log
 
-print_success "USB auto-mounting with LED status on GPIO 24 configured"
+print_success "USB auto-mounting with LED status on GPIO 26 configured"
 
 # Create optimized systemd service for fast startup
 print_step "Creating optimized systemd service..."
@@ -1432,12 +1432,12 @@ print_info "✓ ESP32 receiver should be connected to /dev/ttyACM0"
 print_info "✓ USB audio interface configured"
 print_info "✓ Audio files ready"
 print_info "✓ Service running automatically"
-print_info "✓ USB auto-mounting with LED status on GPIO 24"
+print_info "✓ USB auto-mounting with LED status on GPIO 26"
 print_info "✓ Test script available for debugging"
 echo
 print_info "=== USB AUTO-MOUNTING FEATURES ==="
 print_info "✓ Automatic USB drive mounting to /media/<LABEL>"
-print_info "✓ LED status indicator on GPIO 24 (ON=mounted, OFF=unmounted)"
+print_info "✓ LED status indicator on GPIO 26 (ON=mounted, OFF=unmounted)"
 print_info "✓ Support for FAT, exFAT, NTFS, and ext* filesystems"
 print_info "✓ Automatic audio file detection from USB drives"
 print_info "✓ Hot-swap support - change USB drives without restart"
