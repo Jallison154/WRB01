@@ -36,6 +36,11 @@ check_usb_mounted() {
 # LED Control using Python gpiozero (same as simple_audio_player.py)
 update_led_status() {
     local mount_status
+    local delay=0.5
+    
+    # Longer delay to ensure mount/unmount is fully complete
+    sleep $delay
+    
     check_usb_mounted
     mount_status=$?
     
@@ -93,11 +98,9 @@ case "$ACTION" in
     fi
     
     if [ $MOUNT_SUCCESS -eq 0 ]; then
-        # Small delay to ensure mount is fully registered in /proc/mounts
-        sleep 0.3
-        # Update LED based on whether any USB drives are mounted
-        update_led_status
         echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT" >> /var/log/usb-automount.log
+        # Update LED based on whether any USB drives are mounted (includes delay)
+        update_led_status
     else
         echo "[usb-automount] $(date): FAILED to mount $DEV" >> /var/log/usb-automount.log
     fi
@@ -117,12 +120,9 @@ case "$ACTION" in
         rmdir "$MP" 2>/dev/null || true
     done
     
-    # Small delay to ensure unmount is fully registered in /proc/mounts
-    sleep 0.3
-    # Update LED based on whether any USB drives are still mounted
-    update_led_status
-    
     echo "[usb-automount] $(date): Unmounted $DEV" >> /var/log/usb-automount.log
+    # Update LED based on whether any USB drives are still mounted (includes delay)
+    update_led_status
     ;;
 esac
 EOF
