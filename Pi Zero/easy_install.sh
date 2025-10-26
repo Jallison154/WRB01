@@ -175,7 +175,7 @@ print_success "System packages updated"
 
 # Install required packages
 print_step "Installing required packages..."
-sudo apt install -y python3-pygame python3-serial python3-numpy python3-gpiozero alsa-utils git exfatprogs ntfs-3g raspi-gpio
+sudo apt install -y python3-pygame python3-serial python3-numpy python3-gpiozero alsa-utils git exfatprogs ntfs-3g
 print_success "Required packages installed"
 
 # Comprehensive cleanup of old installation
