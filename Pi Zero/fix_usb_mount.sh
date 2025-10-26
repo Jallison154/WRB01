@@ -27,20 +27,35 @@ PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
 MOUNT_LED_PIN=24
 led_control() {
     local state=$1
-    # Use sysfs for better compatibility and reliability
-    if [ ! -d "/sys/class/gpio/gpio${MOUNT_LED_PIN}" ]; then
-        echo "${MOUNT_LED_PIN}" > /sys/class/gpio/export 2>/dev/null || true
-        sleep 0.1
-        echo "out" > /sys/class/gpio/gpio${MOUNT_LED_PIN}/direction 2>/dev/null || true
+    local gpio_path="/sys/class/gpio/gpio${MOUNT_LED_PIN}"
+    
+    # Export GPIO if not already exported
+    if [ ! -d "$gpio_path" ]; then
+        echo "${MOUNT_LED_PIN}" > /sys/class/gpio/export 2>&1 | tee -a /var/log/usb-automount.log
+        sleep 0.2
+        
+        # Verify export succeeded
+        if [ ! -d "$gpio_path" ]; then
+            echo "[usb-automount] ERROR: Failed to export GPIO ${MOUNT_LED_PIN}" >> /var/log/usb-automount.log
+            return 1
+        fi
     fi
     
+    # Set direction
+    echo "out" > "${gpio_path}/direction" 2>&1 | tee -a /var/log/usb-automount.log
+    
+    # Set value (active low: 0=ON, 1=OFF)
     if [ "$state" = "on" ]; then
-        # Active low = 0 for ON
-        echo 0 > /sys/class/gpio/gpio${MOUNT_LED_PIN}/value 2>/dev/null || true
+        echo 0 > "${gpio_path}/value" 2>&1 | tee -a /var/log/usb-automount.log
+        echo "[usb-automount] LED turned ON (GPIO ${MOUNT_LED_PIN} = 0)" >> /var/log/usb-automount.log
     else
-        # Active low = 1 for OFF
-        echo 1 > /sys/class/gpio/gpio${MOUNT_LED_PIN}/value 2>/dev/null || true
+        echo 1 > "${gpio_path}/value" 2>&1 | tee -a /var/log/usb-automount.log
+        echo "[usb-automount] LED turned OFF (GPIO ${MOUNT_LED_PIN} = 1)" >> /var/log/usb-automount.log
     fi
+    
+    # Verify the value was set
+    local current_value=$(cat "${gpio_path}/value" 2>/dev/null || echo "unknown")
+    echo "[usb-automount] Current GPIO ${MOUNT_LED_PIN} value: $current_value" >> /var/log/usb-automount.log
 }
 
 [ -z "$DEV" ] && exit 0
