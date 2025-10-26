@@ -1104,10 +1104,12 @@ sudo tee /usr/local/bin/usb_led_control.py > /dev/null << 'PYEOF'
 """
 USB Mount LED Controller
 Controls GPIO 24 LED for USB mount status using gpiozero with PWM fade
-Matches the pattern used in simple_audio_player.py
+Uses a PID file to track running instance
 """
 import sys
+import os
 import time
+import signal
 from gpiozero import PWMLED
 
 # GPIO 24, active-low (same as READY_PIN pattern in simple_audio_player.py)
@@ -1117,39 +1119,87 @@ FADE_DURATION = 2.0  # 2 seconds
 FADE_STEPS = 50      # Number of steps for smooth fade
 FADE_START = 1.0     # Start at 100% brightness
 FADE_END = 0.25      # End at 25% brightness
+PID_FILE = "/var/run/usb-led.pid"
+
+def cleanup_running_process():
+    """Kill any running breathing process"""
+    try:
+        if os.path.exists(PID_FILE):
+            with open(PID_FILE, 'r') as f:
+                pid = int(f.read().strip())
+            try:
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(0.2)
+            except ProcessLookupError:
+                pass  # Process already dead
+            os.remove(PID_FILE)
+    except Exception:
+        pass
+
+def breath_continuously():
+    """Breathing effect that runs in background"""
+    led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
+    
+    # Calculate steps for one full breath cycle
+    fade_step = (FADE_START - FADE_END) / FADE_STEPS
+    delay = FADE_DURATION / FADE_STEPS
+    
+    print(f"LED breathing effect started (GPIO {MOUNT_LED_PIN})")
+    
+    try:
+        while True:
+            # Fade down: 100% -> 25%
+            for i in range(FADE_STEPS + 1):
+                brightness = FADE_START - (fade_step * i)
+                if ACTIVE_LOW:
+                    led.value = 1.0 - brightness
+                else:
+                    led.value = brightness
+                time.sleep(delay)
+            
+            # Fade up: 25% -> 100%
+            for i in range(FADE_STEPS + 1):
+                brightness = FADE_END + (fade_step * i)
+                if ACTIVE_LOW:
+                    led.value = 1.0 - brightness
+                else:
+                    led.value = brightness
+                time.sleep(delay)
+    finally:
+        led.off()
 
 def set_led(state):
     """Set LED state: 'on' or 'off'"""
-    try:
-        # Create PWMLED object (allows brightness control)
-        led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
+    if state == "on":
+        # Kill any existing breathing process
+        cleanup_running_process()
         
-        if state == "on":
-            print(f"LED breathing effect (GPIO {MOUNT_LED_PIN})")
+        # Fork and run breathing in background
+        pid = os.fork()
+        if pid == 0:
+            # Child process - run breathing
+            # Write PID file
+            with open(PID_FILE, 'w') as f:
+                f.write(str(os.getpid()))
             
-            # Breathing effect: fade from 100% to 25% and back continuously
-            import math
+            # Run breathing effect
+            breath_continuously()
+            sys.exit(0)
+        else:
+            # Parent process - return immediately
+            print(f"LED breathing effect started (GPIO {MOUNT_LED_PIN})")
+            return 0
             
-            # Calculate steps for one full breath cycle
-            fade_step = (FADE_START - FADE_END) / FADE_STEPS
-            delay = FADE_DURATION / FADE_STEPS
+    elif state == "off":
+        # Kill breathing process
+        cleanup_running_process()
+        
+        # Fade out current LED
+        try:
+            led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
+            current_value = led.value if hasattr(led, 'value') else 1.0
             
-            # Use PWM pulse() method for automatic breathing
-            # This creates a continuous breathing effect without blocking
-            if ACTIVE_LOW:
-                # For active-low, we need to reverse the effect
-                led.pulse(fade_in_time=FADE_DURATION, fade_out_time=FADE_DURATION, 
-                         on_color=(0, 0, 0), off_color=(1.0 - FADE_END, 0, 0))
-            else:
-                led.pulse(fade_in_time=FADE_DURATION, fade_out_time=FADE_DURATION)
-            
-            # Keep LED object alive
-            time.sleep(0.1)
-            
-        elif state == "off":
-            # Fade out over 0.5 seconds
             print(f"LED fading off (GPIO {MOUNT_LED_PIN})")
-            current_value = led.value
             fade_steps = 25
             fade_step = current_value / fade_steps
             
@@ -1163,26 +1213,27 @@ def set_led(state):
             
             led.off()
             print(f"LED OFF (GPIO {MOUNT_LED_PIN})")
-        else:
-            print(f"Invalid state: {state}")
-            return 1
+        except Exception as e:
+            print(f"Error during fade off: {e}")
         
-        # Keep LED object alive briefly to ensure final value is set
-        time.sleep(0.1)
         return 0
-    except Exception as e:
-        print(f"Error controlling LED: {e}")
-        import traceback
-        traceback.print_exc()
+    else:
+        print(f"Invalid state: {state}")
         return 1
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: usb_led_control.py <on|off>")
+    try:
+        if len(sys.argv) != 2:
+            print("Usage: usb_led_control.py <on|off>")
+            sys.exit(1)
+        
+        state = sys.argv[1].lower()
+        sys.exit(set_led(state))
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
-    
-    state = sys.argv[1].lower()
-    sys.exit(set_led(state))
 PYEOF
 
 sudo chmod +x /usr/local/bin/usb_led_control.py
