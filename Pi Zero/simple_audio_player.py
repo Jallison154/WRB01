@@ -150,7 +150,7 @@ from gpiozero import PWMLED
 # Status LED on pin 23 at 25% brightness
 status_led = PWMLED(23)
 # USB LED on pin 26 for audio playback flash
-usb_led = PWMLED(26, active_high=False)
+usb_led = PWMLED(26, active_high=True)
 
 def flash_usb_led():
     """Flash the USB LED briefly when audio is played"""
@@ -162,7 +162,7 @@ def flash_usb_led():
     
     def flash_worker():
         try:
-            # Turn LED on for 200ms (active_high=False means 1.0 = ON)
+            # Turn LED on for 200ms (active_high=True means 1.0 = ON)
             usb_led.value = 1.0  # Full brightness
             print(f"[wrb] {timestamp} USB LED ON - Audio playing", flush=True)  # Debug output
             time.sleep(0.2)
@@ -530,9 +530,16 @@ def main():
     status_led.value = 0.25  # 25% brightness
     print("[wrb] Status LED ON (25% brightness) - Service running", flush=True)
     
-    # Turn off USB LED initially (no audio playing)
+    # Test USB LED behavior
+    print("[wrb] Testing USB LED...", flush=True)
     usb_led.value = 0.0  # OFF
-    print("[wrb] USB LED OFF - No audio playing", flush=True)
+    print("[wrb] USB LED should be OFF now", flush=True)
+    time.sleep(1)
+    usb_led.value = 1.0  # ON
+    print("[wrb] USB LED should be ON now", flush=True)
+    time.sleep(1)
+    usb_led.value = 0.0  # OFF
+    print("[wrb] USB LED should be OFF now - Ready for audio", flush=True)
 
     # source scan + initial paths
     tag, btn1, btn2, h1, h2 = pick_source()
