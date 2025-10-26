@@ -156,15 +156,19 @@ usb_led = PWMLED(26, active_high=False)
 def flash_usb_led():
     """Flash the USB LED briefly when audio is played"""
     import threading
+    import time
+    
+    # Add timestamp to debug output
+    timestamp = time.strftime("%H:%M:%S")
     
     def flash_worker():
         try:
             # Flash LED on for 200ms
             usb_led.value = 1.0  # Full brightness
-            print("[wrb] USB LED ON", flush=True)  # Debug output
+            print(f"[wrb] {timestamp} USB LED ON - Audio playing", flush=True)  # Debug output
             time.sleep(0.2)
             usb_led.value = 0.0  # Turn off
-            print("[wrb] USB LED OFF", flush=True)  # Debug output
+            print(f"[wrb] {timestamp} USB LED OFF - Audio finished", flush=True)  # Debug output
         except Exception as e:
             print(f"USB LED flash error: {e}", flush=True)
     
@@ -313,6 +317,9 @@ def stop_current_sound(sound_key):
 
 def play_button1():
     global _last_play, _current_sounds
+    timestamp = time.strftime("%H:%M:%S")
+    print(f"[wrb] {timestamp} BUTTON1 PRESSED", flush=True)
+    
     if not _button1_paths:
         print("[wrb] BUTTON1 (no file)", flush=True)
         return
