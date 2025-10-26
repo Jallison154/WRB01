@@ -25,8 +25,8 @@ PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
 
 # Check if any USB drives are mounted
 check_usb_mounted() {
-    # Check /proc/mounts for any sda, sdb, etc. mounts
-    if mount | grep -E '\b/dev/sd[a-z]' > /dev/null; then
+    # Check /proc/mounts directly for any sda, sdb, etc. mounts
+    if grep -qE '\b/dev/sd[a-z][0-9]+' /proc/mounts 2>/dev/null; then
         return 0  # At least one USB drive is mounted
     else
         return 1  # No USB drives mounted
@@ -35,7 +35,15 @@ check_usb_mounted() {
 
 # LED Control using Python gpiozero (same as simple_audio_player.py)
 update_led_status() {
-    if check_usb_mounted; then
+    local mount_status
+    check_usb_mounted
+    mount_status=$?
+    
+    # Log the check for debugging
+    echo "[usb-automount] $(date): USB mounted check result: $mount_status" >> /var/log/usb-automount.log
+    grep -E '\b/dev/sd[a-z][0-9]+' /proc/mounts 2>/dev/null >> /var/log/usb-automount.log || true
+    
+    if [ $mount_status -eq 0 ]; then
         /usr/bin/python3 /usr/local/bin/usb_led_control.py on 2>&1 | tee -a /var/log/usb-automount.log
     else
         /usr/bin/python3 /usr/local/bin/usb_led_control.py off 2>&1 | tee -a /var/log/usb-automount.log
