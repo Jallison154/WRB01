@@ -150,6 +150,18 @@ health = SystemHealth()
 from gpiozero import PWMLED
 # Status LED on pin 23 at 25% brightness
 status_led = PWMLED(23)
+# USB LED on pin 26 for audio playback flash
+usb_led = PWMLED(26, active_high=False)
+
+def flash_usb_led():
+    """Flash the USB LED briefly when audio is played"""
+    try:
+        # Flash LED on for 200ms
+        usb_led.value = 1.0  # Full brightness
+        time.sleep(0.2)
+        usb_led.value = 0.0  # Turn off
+    except Exception as e:
+        print(f"USB LED flash error: {e}", flush=True)
 
 def usb_mount_dirs():
     base = "/media"
@@ -331,6 +343,9 @@ def play_button1():
     channel.stop()
     channel.play(s)
     
+    # Flash USB LED when playing audio
+    flash_usb_led()
+    
     # Track the sound for fade-out capability
     _current_sounds['button1'] = s
     _last_play = time.time()
@@ -374,6 +389,9 @@ def play_button2():
     # Stop any existing sound on this channel first
     channel.stop()
     channel.play(s)
+    
+    # Flash USB LED when playing audio
+    flash_usb_led()
     
     # Track the sound for fade-out capability
     _current_sounds['button2'] = s
@@ -419,6 +437,9 @@ def play_hold1():
     channel.stop()
     channel.play(s)
     
+    # Flash USB LED when playing audio
+    flash_usb_led()
+    
     # Track the sound for fade-out capability
     _current_sounds['hold1'] = s
     _last_play = time.time()
@@ -462,6 +483,9 @@ def play_hold2():
     # Stop any existing sound on this channel first
     channel.stop()
     channel.play(s)
+    
+    # Flash USB LED when playing audio
+    flash_usb_led()
     
     # Track the sound for fade-out capability
     _current_sounds['hold2'] = s

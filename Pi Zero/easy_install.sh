@@ -964,161 +964,13 @@ fi
 
 print_success "Python scripts installed"
 
-# USB Auto-mounting Setup with udev rules
-print_step "Setting up USB auto-mounting with LED status..."
-
-# Create udev rule for USB plug/unplug detection
-print_info "Creating udev rule for USB detection..."
-sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOF'
-# USB Auto-mount with LED control
-# Triggers on USB partition add/remove (e.g., /dev/sda1)
-# Runs our script via systemd-run so udev doesn't block
-
-ACTION=="add",    SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", ENV{ID_FS_TYPE}!="", \
-  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-mount-%k /usr/local/bin/usb-automount.sh add /dev/%k"
-
-ACTION=="remove", SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", \
-  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-umount-%k /usr/local/bin/usb-automount.sh remove /dev/%k"
-EOF
-
-# Create simple USB auto-mount script with raspi-gpio LED control
-print_info "Creating USB auto-mount script with LED control..."
-sudo tee /usr/local/bin/usb-automount.sh > /dev/null << 'EOF'
-#!/bin/bash
-# USB Auto-mount script with LED control using raspi-gpio
-# Simple and reliable approach
-
-# LED Configuration
-MOUNT_LED_PIN=26
-LED_ACTIVE_LOW=1
-
-# LED Control Functions using raspi-gpio
-led_on()  { [ "$LED_ACTIVE_LOW" = "1" ] && raspi-gpio set $MOUNT_LED_PIN dl || raspi-gpio set $MOUNT_LED_PIN dh; }
-led_off() { [ "$LED_ACTIVE_LOW" = "1" ] && raspi-gpio set $MOUNT_LED_PIN dh || raspi-gpio set $MOUNT_LED_PIN dl; }
-
-# Logging
-log_message() {
-    echo "[usb-automount] $(date): $1" >> /var/log/usb-automount.log
-}
-
-# Mount function
-mount_usb() {
-    local device="$1"
-    local label=$(blkid -o value -s LABEL "$device" 2>/dev/null)
-    local fstype=$(blkid -o value -s TYPE "$device" 2>/dev/null)
-    
-    if [ -z "$label" ]; then
-        label="usb-$(basename "$device")"
-    fi
-    
-    local mountpoint="/media/$label"
-    
-    # Create mount point
-    mkdir -p "$mountpoint"
-    
-    # Mount with appropriate options
-    case "$fstype" in
-        "ntfs")
-            if command -v ntfs-3g >/dev/null 2>&1; then
-                mount -t ntfs-3g -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
-            else
-                mount -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
-            fi
-            ;;
-        "exfat")
-            if command -v mount.exfat >/dev/null 2>&1; then
-                mount -t exfat -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
-            else
-                mount -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
-            fi
-            ;;
-        *)
-            mount -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
-            ;;
-    esac
-    
-    if [ $? -eq 0 ]; then
-        log_message "Mounted $device to $mountpoint (type: $fstype)"
-        led_on
-        log_message "LED ON (GPIO $MOUNT_LED_PIN) - USB mounted"
-        return 0
-    else
-        log_message "Failed to mount $device"
-        led_off
-        log_message "LED OFF (GPIO $MOUNT_LED_PIN) - Mount failed"
-        return 1
-    fi
-}
-
-# Unmount function
-unmount_usb() {
-    local device="$1"
-    local mountpoint=$(mount | grep "$device" | awk '{print $3}')
-    
-    if [ -n "$mountpoint" ]; then
-        umount "$mountpoint" 2>/dev/null
-        if [ $? -eq 0 ]; then
-            rmdir "$mountpoint" 2>/dev/null
-            log_message "Unmounted $device from $mountpoint"
-        else
-            log_message "Failed to unmount $device"
-        fi
-    fi
-    
-    # Check if any USB drives are still mounted
-    if mount | grep -q "/media/"; then
-        log_message "Other USB drives still mounted, keeping LED ON"
-    else
-        led_off
-        log_message "LED OFF (GPIO $MOUNT_LED_PIN) - No USB drives mounted"
-    fi
-}
-
-# Main logic
-case "$1" in
-    "add")
-        log_message "USB device added: $2"
-        mount_usb "$2"
-        ;;
-    "remove")
-        log_message "USB device removed: $2"
-        unmount_usb "$2"
-        ;;
-    *)
-        echo "Usage: $0 {add|remove} <device>"
-        exit 1
-    ;;
-esac
-EOF
-
-# Make script executable
-sudo chmod +x /usr/local/bin/usb-automount.sh
-print_success "USB auto-mount script created"
+# LED Flash Setup for Audio Playback
+print_step "Setting up LED flash for audio playback..."
 
 # Initialize LED state (turn off initially)
 print_info "Initializing USB LED state..."
 sudo raspi-gpio set 26 op dh  # Set GPIO 26 as output, default HIGH (LED off)
 print_success "USB LED initialized (OFF)"
-
-# Create GPIO permissions udev rule for LED control
-print_info "Creating GPIO permissions rule..."
-sudo tee /etc/udev/rules.d/20-gpio-permissions.rules > /dev/null << 'EOF'
-SUBSYSTEM=="gpio*", PROGRAM="/bin/sh -c 'chown -R root:gpio /sys/class/gpio && chmod -R 775 /sys/class/gpio'"
-SUBSYSTEM=="gpio*", PROGRAM="/bin/sh -c 'for f in /sys/class/gpio/export; do chown root:gpio \$f; chmod 775 \$f; done'"
-SUBSYSTEM=="gpio*", PROGRAM="/bin/sh -c 'for f in /sys/class/gpio/*/direction; do chown root:gpio \$f; chmod 775 \$f; done'"
-SUBSYSTEM=="gpio*", PROGRAM="/bin/sh -c 'for f in /sys/class/gpio/*/value; do chown root:gpio \$f; chmod 775 \$f; done'"
-EOF
-
-# Reload udev rules
-sudo udevadm control --reload
-print_success "USB auto-mounting configured"
-
-# Create log directory for USB auto-mount
-sudo mkdir -p /var/log
-sudo touch /var/log/usb-automount.log
-sudo chown wrb01:wrb01 /var/log/usb-automount.log
-
-print_success "USB auto-mounting with LED status on GPIO 26 configured (udev + raspi-gpio)"
 
 # Create optimized systemd service for fast startup
 print_step "Creating optimized systemd service..."
@@ -1283,16 +1135,15 @@ print_info "✓ ESP32 receiver should be connected to /dev/ttyACM0"
 print_info "✓ USB audio interface configured"
 print_info "✓ Audio files ready"
 print_info "✓ Service running automatically"
-print_info "✓ USB auto-mounting with LED status on GPIO 26"
+print_info "✓ USB LED flash on audio playback (GPIO 26)"
 print_info "✓ Test script available for debugging"
 echo
-print_info "=== USB AUTO-MOUNTING FEATURES ==="
-print_info "✓ Automatic USB drive mounting to /media/<LABEL>"
-print_info "✓ LED status indicator on GPIO 26 (ON=mounted, OFF=unmounted)"
-print_info "✓ Support for FAT, exFAT, NTFS, and ext* filesystems"
-print_info "✓ Automatic audio file detection from USB drives"
+print_info "=== LED FEATURES ==="
+print_info "✓ GPIO 23: Status LED (shows service is running)"
+print_info "✓ GPIO 26: USB LED (flashes when audio is played)"
+print_info "✓ Audio file detection from USB drives and local storage"
 print_info "✓ Hot-swap support - change USB drives without restart"
 echo
-print_info "Your WRB01 Simple Button + Audio System with USB auto-mounting is ready!"
+print_info "Your WRB01 Simple Button + Audio System is ready!"
 print_info "Press buttons on your ESP32 transmitter to hear audio!"
-print_info "Insert USB drives with audio files for automatic detection!"
+print_info "USB LED will flash when audio is played!"
