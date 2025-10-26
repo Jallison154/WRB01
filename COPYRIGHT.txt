@@ -1,21 +1,15 @@
 WRB01 Project - Copyright and Ownership
 
 Copyright Notice
-© 2025 Okami Designs
+© 2025 Okami Designs. All Rights Reserved.
 
-Project Ownership
-This project (WRB01) is owned and developed by Okami Designs.
+Custom designs, concepts, and engineering solutions are the property of Okami Designs unless otherwise stated in a written agreement.
 
-License
-This project is proprietary and confidential. All rights reserved.
+All content, designs, schematics, models, and media created by Okami Designs are protected under U.S. copyright law. Redistribution, reproduction, or commercial use without written permission from Okami Designs is prohibited.
 
-What This Means
-- The code, designs, and documentation in this repository are protected by copyright
-- Unauthorized copying, distribution, or modification is prohibited
-- This project is not open source
-- Commercial use requires explicit permission
+Clients retain rights to use the final delivered product as outlined in their agreement, while Okami Designs retains creative rights for portfolio and educational use.
 
-Components Included
+Project Components
 - Arduino/ESP32 firmware code
 - Python audio control scripts
 - Installation and setup scripts
