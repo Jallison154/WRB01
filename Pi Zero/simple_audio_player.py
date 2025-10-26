@@ -28,8 +28,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "alsa")
 
 BAUD = 115200
 SERIAL = os.getenv("WRB_SERIAL", "/dev/ttyACM0")
-READY_PIN = 18
-READY_ACTIVE_LOW = True
+# READY_PIN removed - not using GPIO 18
 MIX_FREQ = 44100
 MIX_BUF = 256
 RESCAN_SEC = 1.0
@@ -542,7 +541,6 @@ def main():
     else:
         print("[wrb] serial: None (starting without serial)", flush=True)
 
-    led.on()
     print("[wrb] READY - Audio mixer active", flush=True)
     last_scan = time.time()
 
@@ -574,39 +572,15 @@ def main():
         if t == 'BTN1':
             print("[wrb] BUTTON1", flush=True)
             play_button1()
-            try:
-                led.off()
-                time.sleep(0.04)
-                led.on()
-            except:
-                pass
         elif t == 'BTN2':
             print("[wrb] BUTTON2", flush=True)
             play_button2()
-            try:
-                led.off()
-                time.sleep(0.04)
-                led.on()
-            except:
-                pass
         elif t == 'HOLD1':
             print("[wrb] HOLD1", flush=True)
             play_hold1()
-            try:
-                led.off()
-                time.sleep(0.04)
-                led.on()
-            except:
-                pass
         elif t == 'HOLD2':
             print("[wrb] HOLD2", flush=True)
             play_hold2()
-            try:
-                led.off()
-                time.sleep(0.04)
-                led.on()
-            except:
-                pass
 
 if __name__ == "__main__":
     main()
