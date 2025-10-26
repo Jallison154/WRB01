@@ -1372,27 +1372,8 @@ EOF
 
 sudo systemctl daemon-reload
 
-# Keep network services but make them start after audio service
-print_info "Configuring network services to start after audio service..."
-# Don't disable network services, just make them start later
-sudo systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
-sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
-
-# Set network services to start after our service
-print_info "Setting network services to start after audio service..."
-sudo mkdir -p /etc/systemd/system/systemd-networkd.service.d
-sudo tee /etc/systemd/system/systemd-networkd.service.d/override.conf > /dev/null << EOF
-[Unit]
-After=wrb-simple.service
-EOF
-
-sudo mkdir -p /etc/systemd/system/dhcpcd.service.d
-sudo tee /etc/systemd/system/dhcpcd.service.d/override.conf > /dev/null << EOF
-[Unit]
-After=wrb-simple.service
-EOF
-
-sudo systemctl daemon-reload
+# Don't delay network - let it start in parallel
+print_info "Network services will start in parallel with audio service..."
 
 # Final verification
 print_step "Performing final verification..."
