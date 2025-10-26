@@ -85,6 +85,8 @@ case "$ACTION" in
     fi
     
     if [ $MOUNT_SUCCESS -eq 0 ]; then
+        # Small delay to ensure mount is fully registered in /proc/mounts
+        sleep 0.3
         # Update LED based on whether any USB drives are mounted
         update_led_status
         echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT" >> /var/log/usb-automount.log
@@ -107,6 +109,8 @@ case "$ACTION" in
         rmdir "$MP" 2>/dev/null || true
     done
     
+    # Small delay to ensure unmount is fully registered in /proc/mounts
+    sleep 0.3
     # Update LED based on whether any USB drives are still mounted
     update_led_status
     
