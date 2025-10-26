@@ -1076,12 +1076,12 @@ from gpiozero import LED
 MOUNT_LED_PIN = 24
 ACTIVE_LOW = True
 
-# Create LED object (active_high=False means active-low)
-led = LED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW)
-
 def set_led(state):
     """Set LED state: 'on' or 'off'"""
     try:
+        # Create LED object each call (gpiozero handles cleanup)
+        led = LED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW)
+        
         if state == "on":
             led.on()
             print(f"LED ON (GPIO {MOUNT_LED_PIN})")
@@ -1091,9 +1091,15 @@ def set_led(state):
         else:
             print(f"Invalid state: {state}")
             return 1
+        
+        # Keep LED object alive briefly to ensure command is processed
+        import time
+        time.sleep(0.1)
         return 0
     except Exception as e:
         print(f"Error controlling LED: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 if __name__ == "__main__":
