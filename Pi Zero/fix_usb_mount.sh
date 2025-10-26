@@ -17,9 +17,11 @@ echo "Applying USB auto-mount fixes..."
 echo "1. Updating USB auto-mount script..."
 tee /usr/local/bin/usb-automount.sh > /dev/null << 'EOF'
 #!/bin/bash
-set -e
+# Don't exit on error - we handle errors explicitly
 ACTION="$1"; DEV="$2"
-PI_USER="wrb01"; PI_UID="$(id -u $PI_USER)"; PI_GID="$(id -g $PI_USER)"
+PI_USER="wrb01"
+PI_UID=$(id -u "$PI_USER" 2>/dev/null || echo "1000")
+PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
 
 # LED Control (GPIO 24, active-low)
 MOUNT_LED_PIN=24
@@ -45,9 +47,15 @@ led_control() {
 
 case "$ACTION" in
   add)
-    LABEL="$(blkid -o value -s LABEL "$DEV" 2>/dev/null || true)"
-    [ -z "$LABEL" ] && LABEL="usb-$(basename $DEV)"
-    FSTYPE="$(blkid -o value -s TYPE "$DEV" 2>/dev/null || true)"
+    # Get filesystem info (allow it to fail)
+    LABEL=$(blkid -o value -s LABEL "$DEV" 2>/dev/null || echo "")
+    FSTYPE=$(blkid -o value -s TYPE "$DEV" 2>/dev/null || echo "")
+    
+    # Generate label if not found
+    if [ -z "$LABEL" ]; then
+        LABEL="usb-$(basename $DEV)"
+    fi
+    
     MNT="/media/$LABEL"
     
     # Clean up any existing mount or stale mount point
@@ -58,35 +66,44 @@ case "$ACTION" in
     rmdir "$MNT" 2>/dev/null || true
     
     # Create fresh mount point
-    mkdir -p "$MNT"
-    chown "$PI_USER:$PI_USER" "$MNT"
+    mkdir -p "$MNT" 2>/dev/null || true
+    chown "$PI_USER:$PI_USER" "$MNT" 2>/dev/null || true
     
     # Mount with appropriate options
     OPTS="uid=$PI_UID,gid=$PI_GID,umask=002,noatime,nosuid,nodev"
-    if [ "$FSTYPE" = "ntfs" ] && command -v ntfs-3g >/dev/null; then
+    
+    echo "[usb-automount] $(date): Attempting to mount $DEV (type: ${FSTYPE:-unknown})" >> /var/log/usb-automount.log
+    
+    if [ "$FSTYPE" = "ntfs" ] && command -v ntfs-3g >/dev/null 2>&1; then
         mount -t ntfs-3g -o "$OPTS" "$DEV" "$MNT" 2>&1 | tee -a /var/log/usb-automount.log
-    elif [ "$FSTYPE" = "exfat" ] && command -v mount.exfat >/dev/null; then
+        MOUNT_SUCCESS=$?
+    elif [ "$FSTYPE" = "exfat" ] && command -v mount.exfat >/dev/null 2>&1; then
         mount -t exfat -o "$OPTS" "$DEV" "$MNT" 2>&1 | tee -a /var/log/usb-automount.log
+        MOUNT_SUCCESS=$?
     else
         mount -o "$OPTS" "$DEV" "$MNT" 2>&1 | tee -a /var/log/usb-automount.log
+        MOUNT_SUCCESS=$?
     fi
     
-    # Turn on LED
-    led_control on
-    
-    echo "[usb-automount] $(date): Mounted $DEV at $MNT (LED ON)" >> /var/log/usb-automount.log
+    if [ $MOUNT_SUCCESS -eq 0 ]; then
+        # Turn on LED
+        led_control on
+        echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT (LED ON)" >> /var/log/usb-automount.log
+    else
+        echo "[usb-automount] $(date): FAILED to mount $DEV" >> /var/log/usb-automount.log
+    fi
     ;;
     
   remove)
     # Find and unmount all partitions of this device
-    for MP in $(awk -v dev="$DEV" '$1==dev {print $2}' /proc/mounts); do
+    for MP in $(awk -v dev="$DEV" '$1==dev {print $2}' /proc/mounts 2>/dev/null || true); do
         umount -l "$MP" 2>/dev/null || true
         rmdir "$MP" 2>/dev/null || true
     done
     
     # Also check for matching device base (for unpartitioned drives)
-    BASE_DEV=$(echo $DEV | sed 's/[0-9]*$//')
-    for MP in $(awk -v base="$BASE_DEV" '$1~base {print $2}' /proc/mounts); do
+    BASE_DEV=$(echo "$DEV" | sed 's/[0-9]*$//')
+    for MP in $(awk -v base="$BASE_DEV" '$1~base {print $2}' /proc/mounts 2>/dev/null || true); do
         umount -l "$MP" 2>/dev/null || true
         rmdir "$MP" 2>/dev/null || true
     done
