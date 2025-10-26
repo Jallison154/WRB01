@@ -153,9 +153,15 @@ status_led = PWMLED(23)
 usb_led = PWMLED(26, active_high=True)
 
 def flash_usb_led():
-    """Flash the USB LED briefly when audio is played"""
+    """Flash the USB LED briefly when USB audio is played"""
     import threading
     import time
+    
+    # Check if current audio source is from USB
+    current_source = get_current_source()
+    if not current_source or not current_source.startswith('/media/'):
+        # Not a USB source, don't flash LED
+        return
     
     # Add timestamp to debug output
     timestamp = time.strftime("%H:%M:%S")
@@ -164,15 +170,24 @@ def flash_usb_led():
         try:
             # Turn LED on for 200ms (active_high=True means 1.0 = ON)
             usb_led.value = 1.0  # Full brightness
-            print(f"[wrb] {timestamp} USB LED ON - Audio playing", flush=True)  # Debug output
+            print(f"[wrb] {timestamp} USB LED ON - USB audio playing from {current_source}", flush=True)  # Debug output
             time.sleep(0.2)
             usb_led.value = 0.0  # Turn off
-            print(f"[wrb] {timestamp} USB LED OFF - Audio finished", flush=True)  # Debug output
+            print(f"[wrb] {timestamp} USB LED OFF - USB audio finished", flush=True)  # Debug output
         except Exception as e:
             print(f"USB LED flash error: {e}", flush=True)
     
     # Run flash in background thread so it doesn't block audio
     threading.Thread(target=flash_worker, daemon=True).start()
+
+def get_current_source():
+    """Get the current audio source (USB or local)"""
+    # Check if any USB drives are mounted
+    usb_dirs = usb_mount_dirs()
+    if usb_dirs:
+        # Return the first USB mount point
+        return usb_dirs[0]
+    return None
 
 def usb_mount_dirs():
     base = "/media"
