@@ -1103,25 +1103,52 @@ sudo tee /usr/local/bin/usb_led_control.py > /dev/null << 'PYEOF'
 #!/usr/bin/env python3
 """
 USB Mount LED Controller
-Controls GPIO 24 LED for USB mount status using gpiozero
+Controls GPIO 24 LED for USB mount status using gpiozero with PWM fade
 Matches the pattern used in simple_audio_player.py
 """
 import sys
-from gpiozero import LED
+import time
+from gpiozero import PWMLED
 
 # GPIO 24, active-low (same as READY_PIN pattern in simple_audio_player.py)
 MOUNT_LED_PIN = 24
 ACTIVE_LOW = True
+FADE_DURATION = 2.0  # 2 seconds
+FADE_STEPS = 50      # Number of steps for smooth fade
+FADE_START = 1.0     # Start at 100% brightness
+FADE_END = 0.5       # End at 50% brightness
 
 def set_led(state):
     """Set LED state: 'on' or 'off'"""
     try:
-        # Create LED object each call (gpiozero handles cleanup)
-        led = LED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW)
+        # Create PWMLED object (allows brightness control)
+        led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
         
         if state == "on":
-            led.on()
-            print(f"LED ON (GPIO {MOUNT_LED_PIN})")
+            # Start at 100% brightness
+            led.value = FADE_START
+            print(f"LED ON (GPIO {MOUNT_LED_PIN}) at 100%")
+            
+            # Fade from 100% to 50% over 2 seconds
+            fade_step = (FADE_START - FADE_END) / FADE_STEPS
+            delay = FADE_DURATION / FADE_STEPS
+            
+            for i in range(FADE_STEPS + 1):
+                brightness = FADE_START - (fade_step * i)
+                if ACTIVE_LOW:
+                    # Invert for active-low
+                    led.value = 1.0 - brightness
+                else:
+                    led.value = brightness
+                time.sleep(delay)
+            
+            # Keep LED at final brightness
+            if ACTIVE_LOW:
+                led.value = 1.0 - FADE_END
+            else:
+                led.value = FADE_END
+            print(f"LED faded to 50% (GPIO {MOUNT_LED_PIN})")
+            
         elif state == "off":
             led.off()
             print(f"LED OFF (GPIO {MOUNT_LED_PIN})")
@@ -1129,8 +1156,7 @@ def set_led(state):
             print(f"Invalid state: {state}")
             return 1
         
-        # Keep LED object alive briefly to ensure command is processed
-        import time
+        # Keep LED object alive briefly to ensure final value is set
         time.sleep(0.1)
         return 0
     except Exception as e:
