@@ -964,131 +964,129 @@ fi
 
 print_success "Python scripts installed"
 
-# USB Auto-mounting Setup
+# USB Auto-mounting Setup with udev rules
 print_step "Setting up USB auto-mounting with LED status..."
 
-# Create USB auto-mount script
-print_info "Creating USB auto-mount script..."
+# Create udev rule for USB plug/unplug detection
+print_info "Creating udev rule for USB detection..."
+sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOF'
+# USB Auto-mount with LED control
+# Triggers on USB partition add/remove (e.g., /dev/sda1)
+# Runs our script via systemd-run so udev doesn't block
+
+ACTION=="add",    SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", ENV{ID_FS_TYPE}!="", \
+  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-mount-%k /usr/local/bin/usb-automount.sh add /dev/%k"
+
+ACTION=="remove", SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", \
+  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-umount-%k /usr/local/bin/usb-automount.sh remove /dev/%k"
+EOF
+
+# Create simple USB auto-mount script with raspi-gpio LED control
+print_info "Creating USB auto-mount script with LED control..."
 sudo tee /usr/local/bin/usb-automount.sh > /dev/null << 'EOF'
 #!/bin/bash
-# Don't exit on error - we handle errors explicitly
-ACTION="$1"; DEV="$2"
-PI_USER="wrb01"
-PI_UID=$(id -u "$PI_USER" 2>/dev/null || echo "1000")
-PI_GID=$(id -g "$PI_USER" 2>/dev/null || echo "1000")
+# USB Auto-mount script with LED control using raspi-gpio
+# Simple and reliable approach
 
-# Check if any USB drives are mounted
-check_usb_mounted() {
-    # Check /media directory for mounted USB drives (more reliable)
-    local mounted=0
-    
-    # Check if any /media/* directories exist and are mount points
-    if [ -d "/media" ]; then
-        for mount_dir in /media/*; do
-            if [ -d "$mount_dir" ]; then
-                # Check if this is actually a mount point
-                if mountpoint -q "$mount_dir" 2>/dev/null; then
-                    echo "[usb-automount] Found mounted USB at: $mount_dir" >> /var/log/usb-automount.log
-                    mounted=1
-                fi
-            fi
-        done
-    fi
-    
-    if [ $mounted -eq 1 ]; then
-        return 0  # At least one USB drive is mounted
-    else
-        return 1  # No USB drives mounted
-    fi
+# LED Configuration
+MOUNT_LED_PIN=26
+LED_ACTIVE_LOW=1
+
+# LED Control Functions using raspi-gpio
+led_on()  { [ "$LED_ACTIVE_LOW" = "1" ] && raspi-gpio set $MOUNT_LED_PIN dl || raspi-gpio set $MOUNT_LED_PIN dh; }
+led_off() { [ "$LED_ACTIVE_LOW" = "1" ] && raspi-gpio set $MOUNT_LED_PIN dh || raspi-gpio set $MOUNT_LED_PIN dl; }
+
+# Logging
+log_message() {
+    echo "[usb-automount] $(date): $1" >> /var/log/usb-automount.log
 }
 
-# LED Control using Python gpiozero (same as simple_audio_player.py)
-update_led_status() {
-    local mount_status
+# Mount function
+mount_usb() {
+    local device="$1"
+    local label=$(blkid -o value -s LABEL "$device" 2>/dev/null)
+    local fstype=$(blkid -o value -s TYPE "$device" 2>/dev/null)
     
-    check_usb_mounted
-    mount_status=$?
-    
-    # Log the check for debugging
-    echo "[usb-automount] $(date): USB mounted check result: $mount_status" >> /var/log/usb-automount.log
-    
-    if [ $mount_status -eq 0 ]; then
-        /usr/bin/python3 /usr/local/bin/usb_led_control.py on > /dev/null 2>&1 &
-    else
-        /usr/bin/python3 /usr/local/bin/usb_led_control.py off > /dev/null 2>&1 &
-    fi
-}
-
-[ -z "$DEV" ] && exit 0
-
-case "$ACTION" in
-  add)
-    # Get filesystem info (allow it to fail)
-    LABEL=$(blkid -o value -s LABEL "$DEV" 2>/dev/null || echo "")
-    FSTYPE=$(blkid -o value -s TYPE "$DEV" 2>/dev/null || echo "")
-    
-    # Generate label if not found
-    if [ -z "$LABEL" ]; then
-        LABEL="usb-$(basename $DEV)"
+    if [ -z "$label" ]; then
+        label="usb-$(basename "$device")"
     fi
     
-    MNT="/media/$LABEL"
+    local mountpoint="/media/$label"
     
-    # Clean up any existing mount or stale mount point
-    if mountpoint -q "$MNT" 2>/dev/null; then
-        umount -l "$MNT" 2>/dev/null || true
-        sleep 0.2
-    fi
-    rmdir "$MNT" 2>/dev/null || true
-    
-    # Create fresh mount point
-    mkdir -p "$MNT" 2>/dev/null || true
-    chown "$PI_USER:$PI_USER" "$MNT" 2>/dev/null || true
+    # Create mount point
+    mkdir -p "$mountpoint"
     
     # Mount with appropriate options
-    OPTS="uid=$PI_UID,gid=$PI_GID,umask=002,noatime,nosuid,nodev"
+    case "$fstype" in
+        "ntfs")
+            if command -v ntfs-3g >/dev/null 2>&1; then
+                mount -t ntfs-3g -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
+            else
+                mount -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
+            fi
+            ;;
+        "exfat")
+            if command -v mount.exfat >/dev/null 2>&1; then
+                mount -t exfat -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
+            else
+                mount -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
+            fi
+            ;;
+        *)
+            mount -o uid=1000,gid=1000,umask=002,noatime,nosuid,nodev "$device" "$mountpoint"
+            ;;
+    esac
     
-    echo "[usb-automount] $(date): Attempting to mount $DEV (type: ${FSTYPE:-unknown})" >> /var/log/usb-automount.log
-    
-    if [ "$FSTYPE" = "ntfs" ] && command -v ntfs-3g >/dev/null 2>&1; then
-        mount -t ntfs-3g -o "$OPTS" "$DEV" "$MNT" 2>&1 | tee -a /var/log/usb-automount.log
-        MOUNT_SUCCESS=$?
-    elif [ "$FSTYPE" = "exfat" ] && command -v mount.exfat >/dev/null 2>&1; then
-        mount -t exfat -o "$OPTS" "$DEV" "$MNT" 2>&1 | tee -a /var/log/usb-automount.log
-        MOUNT_SUCCESS=$?
+    if [ $? -eq 0 ]; then
+        log_message "Mounted $device to $mountpoint (type: $fstype)"
+        led_on
+        log_message "LED ON (GPIO $MOUNT_LED_PIN) - USB mounted"
+        return 0
     else
-        mount -o "$OPTS" "$DEV" "$MNT" 2>&1 | tee -a /var/log/usb-automount.log
-        MOUNT_SUCCESS=$?
+        log_message "Failed to mount $device"
+        led_off
+        log_message "LED OFF (GPIO $MOUNT_LED_PIN) - Mount failed"
+        return 1
+    fi
+}
+
+# Unmount function
+unmount_usb() {
+    local device="$1"
+    local mountpoint=$(mount | grep "$device" | awk '{print $3}')
+    
+    if [ -n "$mountpoint" ]; then
+        umount "$mountpoint" 2>/dev/null
+        if [ $? -eq 0 ]; then
+            rmdir "$mountpoint" 2>/dev/null
+            log_message "Unmounted $device from $mountpoint"
+        else
+            log_message "Failed to unmount $device"
+        fi
     fi
     
-    if [ $MOUNT_SUCCESS -eq 0 ]; then
-        echo "[usb-automount] $(date): Successfully mounted $DEV at $MNT" >> /var/log/usb-automount.log
-        # Turn LED on immediately without checking (run in background so it doesn't get killed)
-        /usr/bin/python3 /usr/local/bin/usb_led_control.py on > /dev/null 2>&1 &
+    # Check if any USB drives are still mounted
+    if mount | grep -q "/media/"; then
+        log_message "Other USB drives still mounted, keeping LED ON"
     else
-        echo "[usb-automount] $(date): FAILED to mount $DEV" >> /var/log/usb-automount.log
+        led_off
+        log_message "LED OFF (GPIO $MOUNT_LED_PIN) - No USB drives mounted"
     fi
-    ;;
-    
-  remove)
-    # Find and unmount all partitions of this device
-    for MP in $(awk -v dev="$DEV" '$1==dev {print $2}' /proc/mounts 2>/dev/null || true); do
-        umount -l "$MP" 2>/dev/null || true
-        rmdir "$MP" 2>/dev/null || true
-    done
-    
-    # Also check for matching device base (for unpartitioned drives)
-    BASE_DEV=$(echo "$DEV" | sed 's/[0-9]*$//')
-    for MP in $(awk -v base="$BASE_DEV" '$1~base {print $2}' /proc/mounts 2>/dev/null || true); do
-        umount -l "$MP" 2>/dev/null || true
-        rmdir "$MP" 2>/dev/null || true
-    done
-    
-    echo "[usb-automount] $(date): Unmounted $DEV" >> /var/log/usb-automount.log
-    # Small delay to ensure unmount is registered before checking
-    sleep 0.1
-    # Update LED based on whether any USB drives are still mounted
-    update_led_status
+}
+
+# Main logic
+case "$1" in
+    "add")
+        log_message "USB device added: $2"
+        mount_usb "$2"
+        ;;
+    "remove")
+        log_message "USB device removed: $2"
+        unmount_usb "$2"
+        ;;
+    *)
+        echo "Usage: $0 {add|remove} <device>"
+        exit 1
     ;;
 esac
 EOF
@@ -1097,157 +1095,10 @@ EOF
 sudo chmod +x /usr/local/bin/usb-automount.sh
 print_success "USB auto-mount script created"
 
-# Install Python LED controller script
-print_info "Installing Python LED controller..."
-sudo tee /usr/local/bin/usb_led_control.py > /dev/null << 'PYEOF'
-#!/usr/bin/env python3
-"""
-USB Mount LED Controller
-Controls GPIO 26 LED for USB mount status using gpiozero with PWM fade
-Uses a PID file to track running instance
-"""
-import sys
-import os
-import time
-import signal
-from gpiozero import PWMLED
-
-# GPIO 26, active-low (same as READY_PIN pattern in simple_audio_player.py)
-MOUNT_LED_PIN = 26
-ACTIVE_LOW = True
-FADE_DURATION = 2.0  # 2 seconds
-FADE_STEPS = 50      # Number of steps for smooth fade
-FADE_START = 1.0     # Start at 100% brightness
-FADE_END = 0.25      # End at 25% brightness
-PID_FILE = "/var/run/usb-led.pid"
-
-def cleanup_running_process():
-    """Kill any running breathing process"""
-    try:
-        if os.path.exists(PID_FILE):
-            with open(PID_FILE, 'r') as f:
-                pid = int(f.read().strip())
-            try:
-                os.kill(pid, signal.SIGTERM)
-                time.sleep(0.2)
-            except ProcessLookupError:
-                pass  # Process already dead
-            os.remove(PID_FILE)
-    except Exception:
-        pass
-
-def breath_continuously():
-    """Breathing effect that runs in background"""
-    led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
-    
-    # Calculate steps for one full breath cycle
-    fade_step = (FADE_START - FADE_END) / FADE_STEPS
-    delay = FADE_DURATION / FADE_STEPS
-    
-    print(f"LED breathing effect started (GPIO {MOUNT_LED_PIN})")
-    
-    try:
-        while True:
-            # Fade down: 100% -> 25%
-            for i in range(FADE_STEPS + 1):
-                brightness = FADE_START - (fade_step * i)
-                if ACTIVE_LOW:
-                    led.value = 1.0 - brightness
-                else:
-                    led.value = brightness
-                time.sleep(delay)
-            
-            # Fade up: 25% -> 100%
-            for i in range(FADE_STEPS + 1):
-                brightness = FADE_END + (fade_step * i)
-                if ACTIVE_LOW:
-                    led.value = 1.0 - brightness
-                else:
-                    led.value = brightness
-                time.sleep(delay)
-    finally:
-        led.off()
-
-def set_led(state):
-    """Set LED state: 'on' or 'off'"""
-    if state == "on":
-        # Kill any existing breathing process
-        cleanup_running_process()
-        
-        # Fork and run breathing in background
-        pid = os.fork()
-        if pid == 0:
-            # Child process - run breathing
-            # Write PID file
-            with open(PID_FILE, 'w') as f:
-                f.write(str(os.getpid()))
-            
-            # Run breathing effect
-            breath_continuously()
-            sys.exit(0)
-        else:
-            # Parent process - return immediately
-            print(f"LED breathing effect started (GPIO {MOUNT_LED_PIN})")
-            return 0
-            
-    elif state == "off":
-        # Kill breathing process
-        cleanup_running_process()
-        
-        # Fade out current LED
-        try:
-            led = PWMLED(MOUNT_LED_PIN, active_high=not ACTIVE_LOW, frequency=100)
-            current_value = led.value if hasattr(led, 'value') else 1.0
-            
-            print(f"LED fading off (GPIO {MOUNT_LED_PIN})")
-            fade_steps = 25
-            fade_step = current_value / fade_steps
-            
-            for i in range(fade_steps + 1):
-                new_value = current_value - (fade_step * i)
-                if ACTIVE_LOW:
-                    led.value = 1.0 - new_value
-                else:
-                    led.value = new_value
-                time.sleep(0.02)  # ~0.5 seconds total
-            
-            led.off()
-            print(f"LED OFF (GPIO {MOUNT_LED_PIN})")
-        except Exception as e:
-            print(f"Error during fade off: {e}")
-        
-        return 0
-    else:
-        print(f"Invalid state: {state}")
-        return 1
-
-if __name__ == "__main__":
-    try:
-        if len(sys.argv) != 2:
-            print("Usage: usb_led_control.py <on|off>")
-            sys.exit(1)
-        
-        state = sys.argv[1].lower()
-        sys.exit(set_led(state))
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-PYEOF
-
-sudo chmod +x /usr/local/bin/usb_led_control.py
-print_success "Python LED controller installed"
-
-# Create udev rule for USB auto-mounting
-print_info "Creating udev rule for USB auto-mounting..."
-sudo tee /etc/udev/rules.d/99-usb-automount.rules > /dev/null << 'EOF'
-ACTION=="add",    SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", ENV{ID_FS_TYPE}!="", \
-  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-mount-%k /usr/local/bin/usb-automount.sh add /dev/%k"
-
-ACTION=="remove", SUBSYSTEM=="block", KERNEL=="sd[a-z][0-9]", \
-  RUN+="/usr/bin/systemd-run --property=Type=oneshot --unit=usb-umount-%k /usr/local/bin/usb-automount.sh remove /dev/%k"
-EOF
+# Initialize LED state (turn off initially)
+print_info "Initializing USB LED state..."
+sudo raspi-gpio set 26 op dh  # Set GPIO 26 as output, default HIGH (LED off)
+print_success "USB LED initialized (OFF)"
 
 # Create GPIO permissions udev rule for LED control
 print_info "Creating GPIO permissions rule..."
@@ -1267,7 +1118,7 @@ sudo mkdir -p /var/log
 sudo touch /var/log/usb-automount.log
 sudo chown wrb01:wrb01 /var/log/usb-automount.log
 
-print_success "USB auto-mounting with LED status on GPIO 26 configured"
+print_success "USB auto-mounting with LED status on GPIO 26 configured (udev + raspi-gpio)"
 
 # Create optimized systemd service for fast startup
 print_step "Creating optimized systemd service..."
