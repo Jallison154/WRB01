@@ -160,7 +160,7 @@ ACTIVE_LOW = True
 FADE_DURATION = 2.0  # 2 seconds
 FADE_STEPS = 50      # Number of steps for smooth fade
 FADE_START = 1.0     # Start at 100% brightness
-FADE_END = 0.5       # End at 50% brightness
+FADE_END = 0.25      # End at 25% brightness
 
 def set_led(state):
     """Set LED state: 'on' or 'off'"""
@@ -171,34 +171,40 @@ def set_led(state):
         if state == "on":
             print(f"LED breathing effect (GPIO {MOUNT_LED_PIN})")
             
-            # Breathing effect: fade from 100% to 50% and back continuously
+            # Breathing effect: fade from 100% to 25% and back continuously
             import math
             
             # Calculate steps for one full breath cycle
             fade_step = (FADE_START - FADE_END) / FADE_STEPS
             delay = FADE_DURATION / FADE_STEPS
             
-            # Breath continuously until LED is turned off (when USB is unmounted)
-            while True:
-                # Fade down: 100% -> 50%
-                for i in range(FADE_STEPS + 1):
-                    brightness = FADE_START - (fade_step * i)
-                    if ACTIVE_LOW:
-                        led.value = 1.0 - brightness
-                    else:
-                        led.value = brightness
-                    time.sleep(delay)
-                
-                # Fade up: 50% -> 100%
-                for i in range(FADE_STEPS + 1):
-                    brightness = FADE_END + (fade_step * i)
-                    if ACTIVE_LOW:
-                        led.value = 1.0 - brightness
-                    else:
-                        led.value = brightness
-                    time.sleep(delay)
+            # Use PWM pulse() method for automatic breathing
+            # This creates a continuous breathing effect without blocking
+            if ACTIVE_LOW:
+                # For active-low, we need to reverse the effect
+                led.pulse(fade_in_time=FADE_DURATION, fade_out_time=FADE_DURATION, 
+                         on_color=(0, 0, 0), off_color=(1.0 - FADE_END, 0, 0))
+            else:
+                led.pulse(fade_in_time=FADE_DURATION, fade_out_time=FADE_DURATION)
+            
+            # Keep LED object alive
+            time.sleep(0.1)
             
         elif state == "off":
+            # Fade out over 0.5 seconds
+            print(f"LED fading off (GPIO {MOUNT_LED_PIN})")
+            current_value = led.value
+            fade_steps = 25
+            fade_step = current_value / fade_steps
+            
+            for i in range(fade_steps + 1):
+                new_value = current_value - (fade_step * i)
+                if ACTIVE_LOW:
+                    led.value = 1.0 - new_value
+                else:
+                    led.value = new_value
+                time.sleep(0.02)  # ~0.5 seconds total
+            
             led.off()
             print(f"LED OFF (GPIO {MOUNT_LED_PIN})")
         else:
