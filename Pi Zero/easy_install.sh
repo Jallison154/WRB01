@@ -1180,7 +1180,8 @@ fi
 
 # Set service to start immediately after filesystem (no network dependency)
 print_info "Setting service to start immediately after filesystem..."
-sudo systemctl edit wrb-simple.service --force << EOF
+mkdir -p /etc/systemd/system/wrb-simple.service.d
+sudo tee /etc/systemd/system/wrb-simple.service.d/override.conf > /dev/null << EOF
 [Unit]
 After=local-fs.target
 Before=multi-user.target
@@ -1197,12 +1198,14 @@ sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
 
 # Set network services to start after our service
 print_info "Setting network services to start after audio service..."
-sudo systemctl edit systemd-networkd.service --force << EOF
+mkdir -p /etc/systemd/system/systemd-networkd.service.d
+sudo tee /etc/systemd/system/systemd-networkd.service.d/override.conf > /dev/null << EOF
 [Unit]
 After=wrb-simple.service
 EOF
 
-sudo systemctl edit dhcpcd.service --force << EOF
+mkdir -p /etc/systemd/system/dhcpcd.service.d
+sudo tee /etc/systemd/system/dhcpcd.service.d/override.conf > /dev/null << EOF
 [Unit]
 After=wrb-simple.service
 EOF
