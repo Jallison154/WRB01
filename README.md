@@ -92,7 +92,8 @@ WRB01/
 │   ├── WRB-enhanced.service     # Systemd service
 │   ├── Default Sounds/          # Default sound files
 │   └── INSTALLATION_GUIDE.md    # Detailed installation guide
-├── MAC_Finder.ino               # MAC address utility
+├── MAC_Finder/
+│   └── MAC_Finder.ino          # MAC address utility
 └── README.md                    # This file
 ```
 
@@ -100,24 +101,39 @@ WRB01/
 
 ### MAC Address Setup
 
-1. Upload `MAC_Finder.ino` to your ESP32 devices
-2. Open Serial Monitor to see MAC addresses
-3. Update MAC addresses in the ESP32 code:
+1. **Upload MAC_Finder utility:**
+   - Open `MAC_Finder/MAC_Finder.ino` in Arduino IDE
+   - Upload to your **Receiver ESP32** first
+   - Open Serial Monitor (set baud rate to **115200**)
+   - Copy the **Byte Array Format** shown (e.g., `{ 0x58, 0x8C, 0x81, 0x9E, 0x30, 0x10 }`)
+   - This is your **Receiver MAC address**
+
+2. **Find Transmitter MAC:**
+   - Upload `MAC_Finder/MAC_Finder.ino` to your **Transmitter ESP32**
+   - Open Serial Monitor (baud rate **115200**)
+   - Copy the **Byte Array Format** shown
+   - This is your **Transmitter MAC address**
+
+3. **Update ESP32 code with MAC addresses:**
 
 #### Transmitter Configuration:
 ```cpp
-// Receiver MAC Address
+// Receiver MAC Address (from Receiver ESP32 MAC_Finder output)
 uint8_t RX_MAC[] = { 0x58, 0x8C, 0x81, 0x9E, 0x30, 0x10 };
 ```
 
 #### Receiver Configuration:
 ```cpp
-// Allowed Transmitter MACs
+// Allowed Transmitter MACs (from Transmitter ESP32 MAC_Finder output)
 uint8_t ALLOWED_TX_MACS[][6] = {
   { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAC }, // Transmitter 1
   { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAD }, // Transmitter 2
 };
 ```
+
+**Important:** 
+- The **Receiver MAC** (from Receiver ESP32) goes into the **Transmitter code** as `RX_MAC[]`
+- The **Transmitter MAC** (from Transmitter ESP32) goes into the **Receiver code** as `ALLOWED_TX_MACS[][]`
 
 ### Sound File Configuration
 

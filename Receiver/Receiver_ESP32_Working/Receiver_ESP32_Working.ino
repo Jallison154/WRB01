@@ -12,7 +12,7 @@
 
 // Allowed Transmitter MACs
 uint8_t ALLOWED_TX_MACS[][6] = {
-  { 0x58, 0x8C, 0x81, 0x9F, 0x22, 0xAC }, // Transmitter 1
+  { 0x94, 0xA9, 0x90, 0x77, 0x4B, 0xF8 }, // Transmitter 1
 };
 
 const uint8_t ALLOWED_COUNT = sizeof(ALLOWED_TX_MACS) / sizeof(ALLOWED_TX_MACS[0]);

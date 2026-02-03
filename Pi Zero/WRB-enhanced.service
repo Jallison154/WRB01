@@ -1,0 +1,32 @@
+[Unit]
+Description=WRB Enhanced Audio System
+After=local-fs.target network-online.target
+Wants=network-online.target
+DefaultDependencies=no
+
+[Service]
+Type=simple
+User=wrb01
+Group=audio
+WorkingDirectory=/home/wrb01/WRB
+Environment=HOME=/home/wrb01
+Environment=USER=wrb01
+Environment=WRB_SERIAL=/dev/ttyACM0
+Environment=SDL_AUDIODRIVER=alsa
+Environment=AUDIODEV=plughw:1,0
+Environment=PYGAME_HIDE_SUPPORT_PROMPT=1
+ExecStart=/usr/bin/python3 /home/wrb01/WRB/PiScript
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=10
+StandardOutput=journal
+StandardError=journal
+
+# High priority for faster response
+Nice=-10
+IOSchedulingClass=1
+IOSchedulingPriority=4
+
+[Install]
+WantedBy=multi-user.target
